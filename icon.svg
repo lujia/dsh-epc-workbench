@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="EPC Project Workbench">
+  <rect x="2" y="2" width="60" height="60" rx="13" fill="#23304d"/>
+  <path d="M10 50h44" stroke="#4a8cff" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M17 50V26l15-11 15 11v24" fill="none" stroke="#e7e7e7" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M27 50V36h10v14" fill="none" stroke="#33d17a" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M10 20h9M45 20h9" stroke="#ffd479" stroke-width="3.2" stroke-linecap="round"/>
+</svg>

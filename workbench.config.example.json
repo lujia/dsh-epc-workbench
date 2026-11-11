@@ -1,0 +1,116 @@
+{
+  "project": {
+    "name": "Northern Ring Substation Upgrade",
+    "short": "NRS — Substation Upgrade",
+    "mark": "NRS",
+    "site": "Port of Almar, Valtera",
+    "standpoint": "Meridian",
+    "currency": "USD"
+  },
+  "parties": [
+    {
+      "id": "employer",
+      "name": "Northern Grid Authority",
+      "former": "",
+      "abbr": "NGA",
+      "role": "employer"
+    },
+    {
+      "id": "contractor",
+      "name": "Meridian Engineering Ltd",
+      "former": "",
+      "abbr": "MEL",
+      "role": "contractor"
+    },
+    {
+      "id": "subcontractor",
+      "name": "Coastal Works Ltd",
+      "former": "Harbour Civil Works",
+      "abbr": "CWL",
+      "role": "subcontractor"
+    }
+  ],
+  "contracts": [
+    {
+      "id": "MAIN",
+      "kind": "main",
+      "no": "NGA/EPC/2021/07",
+      "label": "Main contract",
+      "counterparty": "employer",
+      "currency": "USD",
+      "value": 84000000,
+      "valueUsd": 7600000,
+      "valueRevised": 96600000,
+      "originalValue": 84000000,
+      "advancePct": 7.5,
+      "retentionPct": 6,
+      "issuer": "contractor"
+    },
+    {
+      "id": "P01",
+      "kind": "sub",
+      "tag": "P01",
+      "no": "MEL-SUB-2021-11",
+      "label": "Package 1",
+      "counterparty": "subcontractor",
+      "currency": "USD",
+      "value": 31500000,
+      "issuer": "contractor",
+      "dir": "ipcs/package-1",
+      "file": "P01_Retention and Advance Payment.xlsx",
+      "has_period": false
+    },
+    {
+      "id": "P02",
+      "kind": "sub",
+      "tag": "P02",
+      "no": "MEL-SUB-2021-12",
+      "label": "Package 2",
+      "counterparty": "subcontractor",
+      "currency": "USD",
+      "value": 44200000,
+      "issuer": "contractor",
+      "dir": "ipcs/package-2",
+      "file": "P02_Retention and Advance Payment.xlsx",
+      "has_period": true
+    }
+  ],
+  "sources": {
+    "root": "./nrs-project",
+    "out": "data",
+    "defects": "defect/register.xlsx",
+    "paymentsRegister": "ipcs/payment register.xlsx",
+    "mainContractDir": "certificates",
+    "mainContractSums": [84000000.0, 96600000.0],
+    "scanPattern": "^(?P<party>[A-Z]+)-[A-Z]+-[A-Z]+-P-0*(?P<ref>\\d+)\\b",
+    "sheets": {
+      "ipc": "Interim Payment to Subcontractor",
+      "employer": "Interim Payment from Employer",
+      "monthly": "Monthly Interim Payment Records"
+    },
+    "latestCertificate": {
+      "dir": "ipcs/package-1",
+      "file": "P01-IPC-Latest.xlsx",
+      "sheet": "IPC",
+      "itemsSheet": " SUM ACC"
+    },
+    "docs": {
+      "contracts": "contracts",
+      "toc": "taking_over",
+      "materials": "materials",
+      "photos": "photo",
+      "videos": "video",
+      "pdfLetters": "pdf_letters"
+    },
+    "letters": [
+      { "dir": "letters/issued-to-subcontractor", "series": "issued_p01", "contract": "P01", "side": "issued", "label": "Issued to subcontractor" },
+      { "dir": "letters/received-from-subcontractor", "series": "received_p01", "contract": "P01", "side": "received", "label": "Received from subcontractor" },
+      { "dir": "letters/issued-to-employer", "series": "issued_nga", "contract": "MAIN", "side": "issued", "label": "Issued to employer" },
+      { "dir": "letters/received-from-employer", "series": "received_nga", "contract": "MAIN", "side": "received", "label": "Received from employer" }
+    ],
+    "meetings": [
+      { "dir": "meetings/employer", "series": "MEL · NGA", "contract": "MAIN", "label": "MEL · employer" },
+      { "dir": "meetings/subcontractor", "series": "MEL · CWL", "contract": "P01", "label": "MEL · subcontractor" }
+    ]
+  }
+}
