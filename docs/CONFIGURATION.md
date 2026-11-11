@@ -28,7 +28,27 @@ config out of version control: `.gitignore` already excludes `workbench.config.j
 | `mark` | Two to four letters for the topbar glyph and the favicon-ish square |
 | `site` | Site description line |
 | `standpoint` | Whose books are being read, e.g. the main contractor |
-| `currency` | ISO code or symbol printed on every money tile |
+| `currency` | ISO code or symbol of the primary currency |
+| `currencies` | Optional list of the currencies the contract is priced in; see below |
+
+### `project.currencies`
+
+A contract is often priced in more than one currency: imported plant in dollars, site
+works in the local currency. The slices are additive, so the workbench prints all of
+them rather than one converted total. Each entry tells it how a currency is spelled and
+which field suffix carries its amount.
+
+| Key | Meaning |
+| --- | --- |
+| `code` | Currency code, matched against `amounts[].code` |
+| `label` | What the page prints, e.g. `US$` |
+| `key` | Field suffix used in the payload (`Usd` gives `curUsd`, `grossCumUsd`, …) |
+| `primary` | The one whose figure leads a tile and carries the progress percentages |
+
+When the list is absent the workbench derives a single primary currency from
+`project.currency`, which is the right answer for a single-currency project. Adding a
+third currency later means one more entry here and one more set of suffixed fields in the
+payload — no template change.
 
 ## `parties`
 
@@ -62,7 +82,7 @@ subcontract package. The first `kind: "main"` entry is the default scope; every
 | `counterparty` | | Party `id` on the other side of the contract |
 | `currency` | | Defaults to `project.currency` |
 | `value` | | Contract sum |
-| `valueUsd` | | Secondary-currency sum, if the contract is measured in two currencies |
+| `valueUsd` | | Second-currency slice of the sum, when the contract is measured in two |
 | `valueRevised` | | Revised sum after a variation; the register quotes this when present |
 | `originalValue` | | Original sum, printed beside the revised one |
 | `advancePct` / `retentionPct` | | Percentages shown in the certificate bands |

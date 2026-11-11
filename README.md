@@ -108,6 +108,33 @@ and contract numbers all arrive inside the payload (`taxonomy`), which is why th
 bundle serves any project: `contractLabel(data, id)` and `seriesLabel(data, key)` look
 those names up rather than printing a literal.
 
+### Money is a list of currency slices
+
+An EPC contract is often priced in more than one currency — imported plant in dollars,
+site works in the local currency — and the bill rows carry one amount per currency. The
+two are additive, not conversions of each other, so a figure printed in one currency
+understates the contract by the other. The payload therefore declares the currencies it
+uses and writes the slices out explicitly:
+
+```json
+"currencies": [
+  {"code": "LKR", "label": "LKR", "key": "Lkr", "primary": true},
+  {"code": "USD", "label": "US$", "key": "Usd", "primary": false}
+],
+"mainContract": {"contract": {"amounts": [{"code": "LKR", "amount": 96600000.0},
+                                          {"code": "USD", "amount": 6720000.0}],
+                              "amountsOrig": [ ... ]}},
+"contracts": [{"id": "MAIN", "amounts": [ ... ], "amountsOrig": [ ... ]}]
+```
+
+Every scalar money field is written once per currency with the currency's `key` as the
+suffix — `grossCumLkr` / `grossCumUsd`, `curLkr` / `curUsd`, `contractLkr` / `contractUsd`.
+`rowSlices(row, 'grossCum', data)` reads them back as a list in the declared order, and the
+client prints every slice it finds: a money tile keeps the first currency large and stacks
+the rest beneath it, and the certificate, bills and statement tables build one column per
+currency. Adding a third currency means adding an entry to `currencies` and another set of
+suffixed fields — no template change, and no figure silently dropped.
+
 ## Layout
 
 ```

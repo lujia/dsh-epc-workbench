@@ -89,8 +89,12 @@ def normalise(raw):
     # more than one, and the slices add up to the price rather than convert into
     # each other, so both names have to travel with the data instead of being
     # assumed from the primary one alone.
+    # The list belongs to the project — that is where the documentation puts it —
+    # but a top-level list is accepted too so a hand-written file cannot silently
+    # lose the second currency.
+    declared = project.get("currencies") or raw.get("currencies") or []
     currencies = []
-    for i, c in enumerate(raw.get("currencies") or []):
+    for i, c in enumerate(declared):
         if isinstance(c, str):
             c = {"code": c}
         code = (c.get("code") or "").upper()

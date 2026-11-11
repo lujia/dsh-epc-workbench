@@ -5,7 +5,11 @@
     "mark": "NRS",
     "site": "Port of Almar, Valtera",
     "standpoint": "Meridian",
-    "currency": "USD"
+    "currency": "LKR",
+    "currencies": [
+      { "code": "LKR", "label": "LKR", "key": "Lkr", "primary": true },
+      { "code": "USD", "label": "US$", "key": "Usd", "primary": false }
+    ]
   },
   "parties": [
     {
@@ -37,11 +41,12 @@
       "no": "NGA/EPC/2021/07",
       "label": "Main contract",
       "counterparty": "employer",
-      "currency": "USD",
+      "currency": "LKR",
       "value": 84000000,
-      "valueUsd": 7600000,
+      "valueUsd": 6720000,
       "valueRevised": 96600000,
       "originalValue": 84000000,
+      "originalValueUsd": 6720000,
       "advancePct": 7.5,
       "retentionPct": 6,
       "issuer": "contractor"
@@ -53,7 +58,7 @@
       "no": "MEL-SUB-2021-11",
       "label": "Package 1",
       "counterparty": "subcontractor",
-      "currency": "USD",
+      "currency": "LKR",
       "value": 31500000,
       "issuer": "contractor",
       "dir": "ipcs/package-1",
@@ -67,7 +72,7 @@
       "no": "MEL-SUB-2021-12",
       "label": "Package 2",
       "counterparty": "subcontractor",
-      "currency": "USD",
+      "currency": "LKR",
       "value": 44200000,
       "issuer": "contractor",
       "dir": "ipcs/package-2",
