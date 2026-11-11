@@ -19,6 +19,11 @@ for (const m of source.matchAll(/\bt\(\s*'([A-Za-z0-9_.]+)'/g)) {
   if (!m[1].endsWith('.')) used.add(m[1])
 }
 
+// moneyKpi takes a key exactly like t() does — the money tiles that print one
+// line per currency are built through it, so the checker has to read them the
+// same way or every KPI label looks unused.
+for (const m of source.matchAll(/\bmoneyKpi\(\s*'([A-Za-z0-9_.]+)'/g)) used.add(m[1])
+
 // Keys assembled at runtime from a known set of suffixes. Series and meeting
 // labels are not here: they come from the dataset taxonomy, not from the
 // dictionary, so a project can name its own series without touching i18n.

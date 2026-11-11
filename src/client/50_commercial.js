@@ -54,25 +54,40 @@
 			var byPeriod = sortEntriesAsc(mc.byPeriod || {}).map(function (e) {
 				return [e[0], e[1].lkr || 0];
 			});
-			var certifiedLkr = mc.totals.certifiedLkr;
 			var adjustCum = latest.adjustCumLkr != null ? latest.adjustCumLkr : (ledger.length ? ledger[ledger.length - 1].contractorCum : null);
-			/* same two figures the Overview band uses, so the two pages agree */
+			/* same figures the Overview band uses, so the two pages agree */
 			var cap = mainCap(mc);
 			var works = mainWorks(mc);
-			var cur = ccyOf(props.data);
+			var data = props.data;
+			var capSlices = mainCapSlices(mc, data);
+			var origSlices = mainOrigSlices(mc, data);
+			var worksSlices = mainWorksSlices(mc, data);
+			var curSlices = rowSlices(latest, 'cur', data);
+			var ccyFirst = ccyList(data)[0] || {};
+			var adjustSlices = rowSlices(latest, 'adjustCum', data);
+			if (adjustSlices.length === 0 && isNum(adjustCum)) {
+				adjustSlices = [{ label: ccyFirst.label || '', amount: adjustCum }];
+			}
 
+			/* A contract priced in two currencies is certified in both, and neither
+			   slice is a conversion of the other, so each tile prints all of them
+			   rather than one figure under a single unit. */
 			var kpis = [
-				{ label: t('mc.kpi.contractrev'), value: compact(cap), unit: cur, sub: t('mc.kpi.orig', { v: compact(contract.lkr) }) },
-				{ label: t('co.kpi.main.works'), value: compact(works), unit: cur, sub: t('sub.ofvalue', { p: pct(works, cap) }) },
-				{ label: t('co.kpi.main.latest'), value: compact(latest.curLkr), unit: cur, sub: 'IPA ' + (latest.ipa || '—') + ' · ' + shortDate(latest.period) },
-				{ label: t('co.kpi.main.adjust'), value: compact(adjustCum), unit: cur, sub: t('sub.ofgross', { p: pct(adjustCum, latest.grossCumLkr) }) }
+				moneyKpi('mc.kpi.contractrev', capSlices, { sub: t('mc.kpi.orig', { v: moneyText(origSlices) }) }),
+				moneyKpi('co.kpi.main.works', worksSlices, { sub: t('sub.ofvalue', { p: pct(works, cap) }) }),
+				moneyKpi('co.kpi.main.latest', curSlices, { sub: 'IPA ' + (latest.ipa || '—') + ' · ' + shortDate(latest.period) }),
+				moneyKpi('co.kpi.main.adjust', adjustSlices, { sub: t('sub.ofgross', { p: pct(adjustCum, latest.grossCumLkr) }) })
 			];
 
 			var kpis2 = [
-				{ label: t('co.kpi.main.gross'), value: compact(latest.grossCumLkr), unit: cur, sub: 'IPA ' + (latest.ipa || '—') },
-				{ label: t('co.kpi.main.advance'), value: compact(Math.abs(latest.advanceRepayCumLkr)), unit: cur, sub: t('co.main.advancepct', { n: contract.advancePct }) },
-				{ label: t('co.kpi.main.retention'), value: compact(Math.abs(latest.retentionCumLkr)), unit: cur, sub: t('co.main.retentionpct', { n: contract.retentionPct }) },
-				{ label: t('co.kpi.main.due'), value: compact(latest.curLkr), unit: cur, sub: t('sub.certs', { n: mc.totals.count }) }
+				moneyKpi('co.kpi.main.gross', rowSlices(latest, 'grossCum', data), { sub: 'IPA ' + (latest.ipa || '—') }),
+				moneyKpi('co.kpi.main.advance', rowSlices(latest, 'advanceRepayCum', data).map(function (e) {
+					return { label: e.label, amount: Math.abs(e.amount) };
+				}), { sub: t('co.main.advancepct', { n: contract.advancePct }) }),
+				moneyKpi('co.kpi.main.retention', rowSlices(latest, 'retentionCum', data).map(function (e) {
+					return { label: e.label, amount: Math.abs(e.amount) };
+				}), { sub: t('co.main.retentionpct', { n: contract.retentionPct }) }),
+				moneyKpi('co.kpi.main.due', rowSlices(latest, 'dueCum', data), { sub: t('sub.certs', { n: mc.totals.count }) })
 			];
 
 			var tabs = [
@@ -106,10 +121,10 @@
 									: tab === 'bills' ? t('sub.rows', { n: (latest.bills || []).length })
 										: t('sub.rows', { n: 8 }))),
 
-					tab === 'ipas' ? mainIpaTable(ipas, mc) : null,
+					tab === 'ipas' ? mainIpaTable(ipas, mc, props.data) : null,
 					tab === 'adjust' ? mainAdjustTable(ledger) : null,
-					tab === 'bills' ? mainBillTable(latest.bills || [], contract) : null,
-					tab === 'statement' ? mainStatement(latest, mc, cur) : null,
+					tab === 'bills' ? mainBillTable(latest.bills || [], contract, data) : null,
+					tab === 'statement' ? mainStatement(latest, mc, data) : null,
 
 					h('div', { className: 'epc-note' },
 						tab === 'ipas' ? t('co.note.main.ipas', { f: mc.parsed, p: mc.pdfOnly.length })
@@ -129,7 +144,6 @@
 			   the register strip must move the retention table with it */
 			var pkg = scope;
 			var isMain = isMainScope(data, scope);
-			var cur = ccyOf(data);
 
 			/* the main-contract and subcontract tab sets do not overlap, so a tab left
 			   over from the other scope must fall back rather than render nothing */
@@ -181,18 +195,26 @@
 				['boq', t('co.tab.boq')]
 			];
 
+			/* A package is priced in one currency, but the label still comes from the
+			   register rather than from a literal, so a project whose packages are
+			   priced elsewhere prints its own currency instead of the template's. */
+			var pkgCcy = (contractById(data, pkg) || {}).currency;
+			var pkgSlices = function (amount) {
+				return [{ label: ccyLabelFor(data, pkgCcy), amount: amount }];
+			};
+
 			var kpis = [
-				{ label: t('co.kpi.certified'), value: compact(totals.certified), unit: cur, sub: t('sub.certs', { n: certs.length }) },
-				{ label: t('co.kpi.paid'), value: compact(totals.paid), unit: cur, sub: t('sub.ofcertified', { p: pct(totals.paid, totals.certified) }) },
-				{ label: t('co.kpi.unpaid'), value: compact(totals.unpaidAmount), unit: cur, sub: t('sub.opencerts', { n: totals.unpaidCount }) },
+				moneyKpi('co.kpi.certified', pkgSlices(totals.certified), { sub: t('sub.certs', { n: certs.length }) }),
+				moneyKpi('co.kpi.paid', pkgSlices(totals.paid), { sub: t('sub.ofcertified', { p: pct(totals.paid, totals.certified) }) }),
+				moneyKpi('co.kpi.unpaid', pkgSlices(totals.unpaidAmount), { sub: t('sub.opencerts', { n: totals.unpaidCount }) }),
 				{ label: t('co.kpi.lag'), value: String(payments.lag.avg), unit: t('co.kpi.lag.unit'), sub: t('co.lag.max') + ' ' + payments.lag.max + ' · ' + t('co.lag.n') + ' ' + payments.lag.n }
 			];
 
 			var kpis2 = [
-				{ label: t('co.kpi.invoiced'), value: compact(totals.employerInvoiced), unit: cur, sub: t('sub.invoices', { n: (payments.employer || []).length }) },
-				{ label: t('co.kpi.received'), value: compact(totals.employerReceived), unit: cur, sub: t('sub.collected', { p: pct(totals.employerReceived, totals.employerInvoiced) }) },
-				{ label: t('co.kpi.retention'), value: compact(ret ? ret.retCum : null), unit: cur, sub: pkg + ' · ' + shortDate(ret ? ret.period : null) },
-				{ label: t('co.kpi.advance'), value: compact(ret ? ret.advCum : null), unit: cur, sub: pkg + ' ' + (ret ? ret.ipc : '') }
+				moneyKpi('co.kpi.invoiced', pkgSlices(totals.employerInvoiced), { sub: t('sub.invoices', { n: (payments.employer || []).length }) }),
+				moneyKpi('co.kpi.received', pkgSlices(totals.employerReceived), { sub: t('sub.collected', { p: pct(totals.employerReceived, totals.employerInvoiced) }) }),
+				moneyKpi('co.kpi.retention', pkgSlices(ret ? ret.retCum : null), { sub: pkg + ' · ' + shortDate(ret ? ret.period : null) }),
+				moneyKpi('co.kpi.advance', pkgSlices(ret ? ret.advCum : null), { sub: pkg + ' ' + (ret ? ret.ipc : '') })
 			];
 
 			return h('div', { className: 'epc-wrap' },
@@ -357,7 +379,7 @@
 
 		/* ---- main-contract tables ---- */
 
-		function mainIpaTable(rows, mc) {
+		function mainIpaTable(rows, mc, data) {
 			if (rows.length === 0) return h(Empty, null, t('co.empty'));
 			var sorted = rows.slice().sort(function (a, b) {
 				return (b.ipa || 0) - (a.ipa || 0);
@@ -366,25 +388,37 @@
 			   price, not the original sum: the cumulative figure carries the price
 			   adjustment, so against the original sum it would pass 100% and read as
 			   an arithmetic error rather than as an escalation claim. */
-			var contractLkr = mainCap(mc);
+			var ccys = ccyList(data);
+			var base = ccys[0] || {};
+			var contractBase = isNum(mc && mc.contract && mc.contract.revisedLkr) ? mc.contract.revisedLkr : mainCap(mc);
+			/* One certified column and one cumulative column per currency, named after
+			   the currency rather than numbered: "2nd currency" stops meaning anything
+			   as soon as a project prices itself in three. */
+			var headCert = ccys.map(function (c) {
+				return h('th', { key: 'hc' + c.code, className: 'r' }, t('th.certified') + ' ' + c.label);
+			});
+			var headCum = ccys.map(function (c) {
+				return h('th', { key: 'hu' + c.code, className: 'r' }, t('th.cum') + ' ' + c.label);
+			});
 			return h('table', { className: 'epc-tbl' },
 				h('thead', null, h('tr', null,
 					h('th', null, t('th.ipa')),
 					h('th', null, t('th.period')),
-					h('th', { className: 'r' }, t('th.certified')),
-					h('th', { className: 'r' }, t('th.certified.usd')),
-					h('th', { className: 'r' }, t('th.cum')),
-					h('th', { className: 'r' }, t('th.cum.usd')),
+					headCert,
+					headCum,
 					h('th', { style: { width: '120px' } }, t('th.share')))),
 				h('tbody', null, sorted.map(function (r, i) {
-					var share = isNum(contractLkr) && contractLkr > 0 && isNum(r.cumLkr) ? r.cumLkr / contractLkr : 0;
+					var shareNum = isNum(r['cum' + base.key]);
+					var share = isNum(contractBase) && contractBase > 0 && shareNum ? r['cum' + base.key] / contractBase : 0;
 					return h('tr', { key: 'm' + i },
 						h('td', { className: 'mono' }, 'IPA ' + r.ipa),
 						h('td', { className: 'mono dim' }, shortDate(r.period)),
-						h('td', { className: 'r mono' }, grouped(r.curLkr, 2)),
-						h('td', { className: 'r mono dim' }, grouped(r.curUsd, 2)),
-						h('td', { className: 'r mono' }, grouped(r.cumLkr, 2)),
-						h('td', { className: 'r mono dim' }, grouped(r.cumUsd, 2)),
+						ccys.map(function (c, ci) {
+							return h('td', { key: 'c' + c.code, className: 'r mono' + (ci === 0 ? '' : ' dim') }, grouped(r['cur' + c.key], 2));
+						}),
+						ccys.map(function (c, ci) {
+							return h('td', { key: 'u' + c.code, className: 'r mono' + (ci === 0 ? '' : ' dim') }, grouped(r['cum' + c.key], 2));
+						}),
 						h('td', null,
 							h(ProgressBar, {
 								value: share,
@@ -394,10 +428,13 @@
 				})),
 				h('tfoot', null, h('tr', null,
 					h('td', { colSpan: 2, style: { padding: '8px 12px', fontWeight: 650 } }, t('ui.total')),
-					h('td', null),
-					h('td', null),
-					h('td', { className: 'r mono', style: { padding: '8px 12px' } }, grouped(mc.totals.certifiedLkr, 2)),
-					h('td', { className: 'r mono', style: { padding: '8px 12px' } }, grouped(mc.totals.certifiedUsd, 2)),
+					ccys.map(function (c) {
+						return h('td', { key: 'tc' + c.code }, null);
+					}),
+					ccys.map(function (c, ci) {
+						var v = ci === 0 ? (mc.totals || {}).certifiedLkr : (mc.totals || {})['certified' + c.key];
+						return h('td', { key: 'tu' + c.code, className: 'r mono', style: { padding: '8px 12px' } }, grouped(v, 2));
+					}),
 					h('td', null))));
 		}
 
@@ -427,64 +464,86 @@
 				})));
 		}
 
-		function mainBillTable(bills, contract) {
+		function mainBillTable(bills, contract, data) {
 			var items = (bills || []).filter(function (b) { return b && b.desc; });
 			if (items.length === 0) return h(Empty, null, t('co.empty'));
-			/* The main contract is a mixed-currency sum (the second currency plus the
-			   columns are shown — 'Mandatory Spare Parts', for one, is entirely in
-			   primary one), so both columns are rendered: a bill priced only in the second
-   currency would read as zero if only the primary column were shown. */
+			/* The main contract is a sum of currency slices, not a single amount
+			   converted for display: a line priced entirely in the second currency
+			   would read as zero under a single-currency column. One triple of
+			   columns per currency present keeps every slice visible and adds a
+			   fourth currency without touching this code. */
+			var ccys = ccyList(data);
+			var head = [h('th', { key: 'c', className: 'r' }, t('th.code')), h('th', { key: 'd' }, t('th.desc'))];
+			ccys.forEach(function (c) {
+				head.push(h('th', { key: 'k' + c.code, className: 'r' }, t('th.contract') + ' ' + c.label));
+			});
+			ccys.forEach(function (c) {
+				head.push(h('th', { key: 't' + c.code, className: 'r' }, t('co.th.cur') + ' ' + c.label));
+			});
+			ccys.forEach(function (c) {
+				head.push(h('th', { key: 'm' + c.code, className: 'r' }, t('th.cum') + ' ' + c.label));
+			});
+			head.push(h('th', { key: 's', className: 'r', style: { width: '78px' } }, t('th.share')));
+
 			return h('table', { className: 'epc-tbl' },
-				h('thead', null, h('tr', null,
-					h('th', null, t('th.code')),
-					h('th', null, t('th.desc')),
-					h('th', { className: 'r' }, t('th.contract') + ' US$'),
-					h('th', { className: 'r' }, t('th.contract') + ' ' + cur),
-					h('th', { className: 'r' }, t('co.th.curusd')),
-					h('th', { className: 'r' }, t('co.th.cur')),
-					h('th', { className: 'r' }, t('th.cum.usd')),
-					h('th', { className: 'r' }, t('th.cum')),
-					h('th', { className: 'r', style: { width: '78px' } }, t('th.share')))),
+				h('thead', null, h('tr', null, head)),
 				h('tbody', null, items.map(function (b, i) {
-					var basis = isNum(b.contractLkr) && b.contractLkr > 0 ? b.contractLkr : null;
-					var share = basis !== null && isNum(b.cumLkr) ? b.cumLkr / basis
-						: (isNum(b.contractUsd) && b.contractUsd > 0 && isNum(b.cumUsd) ? b.cumUsd / b.contractUsd : null);
-					return h('tr', { key: 'bl' + i },
-						h('td', { className: 'mono' }, b.code || '—'),
-						h('td', null, h('div', { className: 'epc-clip', style: { maxWidth: '290px' } }, String(b.desc).trim())),
-						h('td', { className: 'r mono dim' }, grouped(b.contractUsd, 2)),
-						h('td', { className: 'r mono dim' }, grouped(b.contractLkr, 2)),
-						h('td', { className: 'r mono' }, grouped(b.curUsd, 2)),
-						h('td', { className: 'r mono' }, grouped(b.curLkr, 2)),
-						h('td', { className: 'r mono dim' }, grouped(b.cumUsd, 2)),
-						h('td', { className: 'r mono' }, grouped(b.cumLkr, 2)),
-						h('td', { className: 'r mono dim' },
-							share === null ? '—' : (share * 100).toFixed(1) + '%'));
+					/* The share is measured against the first currency that carries a
+					   contract amount for this line, and the cumulative figure of the
+					   same currency — mixing slices would produce a ratio of two
+					   different currencies. */
+					var basis = null, baseKey = null;
+					ccys.forEach(function (c) {
+						if (basis === null && isNum(b['contract' + c.key]) && b['contract' + c.key] > 0) {
+							basis = b['contract' + c.key];
+							baseKey = c.key;
+						}
+					});
+					var share = basis !== null && isNum(b['cum' + baseKey]) ? b['cum' + baseKey] / basis : null;
+					var cells = [
+						h('td', { key: 'c', className: 'mono' }, b.code || '—'),
+						h('td', { key: 'd' }, h('div', { className: 'epc-clip', style: { maxWidth: '290px' } }, String(b.desc).trim()))
+					];
+					ccys.forEach(function (c, ci) {
+						cells.push(h('td', { key: 'k' + c.code, className: 'r mono' + (ci === 0 ? '' : ' dim') }, grouped(b['contract' + c.key], 2)));
+					});
+					ccys.forEach(function (c, ci) {
+						cells.push(h('td', { key: 't' + c.code, className: 'r mono' + (ci === 0 ? '' : ' dim') }, grouped(b['cur' + c.key], 2)));
+					});
+					ccys.forEach(function (c, ci) {
+						cells.push(h('td', { key: 'm' + c.code, className: 'r mono' + (ci === 0 ? '' : ' dim') }, grouped(b['cum' + c.key], 2)));
+					});
+					cells.push(h('td', { key: 's', className: 'r mono dim' }, share === null ? '—' : (share * 100).toFixed(1) + '%'));
+					return h('tr', { key: 'bl' + i }, cells);
 				})),
-				h('tfoot', null, h('tr', null,
-					h('td', { colSpan: 2, style: { padding: '8px 12px', fontWeight: 650 } }, t('ui.total')),
-					h('td', { className: 'r mono', style: { padding: '8px 12px' } }, grouped(sumBy(items, 'contractUsd'), 2)),
-					h('td', { className: 'r mono', style: { padding: '8px 12px' } }, grouped(sumBy(items, 'contractLkr'), 2)),
-					h('td', { className: 'r mono', style: { padding: '8px 12px' } }, grouped(sumBy(items, 'curUsd'), 2)),
-					h('td', { className: 'r mono', style: { padding: '8px 12px' } }, grouped(sumBy(items, 'curLkr'), 2)),
-					h('td', { className: 'r mono', style: { padding: '8px 12px' } }, grouped(sumBy(items, 'cumUsd'), 2)),
-					h('td', { className: 'r mono', style: { padding: '8px 12px' } }, grouped(sumBy(items, 'cumLkr'), 2)),
-					h('td', null))));
+				h('tfoot', null, h('tr', null, (function () {
+					var foot = [h('td', { key: 'c', colSpan: 2, style: { padding: '8px 12px', fontWeight: 650 } }, t('ui.total'))];
+					['contract', 'cur', 'cum'].forEach(function (part) {
+						ccys.forEach(function (c) {
+							foot.push(h('td', { key: part + c.code, className: 'r mono', style: { padding: '8px 12px' } },
+								grouped(sumBy(items, part + c.key), 2)));
+						});
+					});
+					foot.push(h('td', { key: 's' }));
+					return foot;
+				})())));
 		}
 
-		function mainStatement(latest, mc, cur) {
+		function mainStatement(latest, mc, data) {
 			var ledger = mainLedger(mc);
 			var adjust = latest.adjustCumLkr != null ? latest.adjustCumLkr
 				: (ledger.length ? ledger[ledger.length - 1].contractorCum : null);
+			/* Each row names the field base rather than a value, because every line
+			   is certified per currency and the cell has to print all of them. */
 			var rows = [
-				['co.st.gross', latest.grossCumLkr, t('co.st.gross.note')],
-				['co.st.adjust', adjust, null],
-				['co.st.advance', latest.advanceRepayCumLkr, latest.advanceCumLkr != null ? t('co.st.advance.note', { v: grouped(latest.advanceCumLkr, 2) }) : null],
-				['co.st.retention', latest.retentionCumLkr, t('co.st.retention.note', { n: (mc.contract || {}).retentionPct })],
-				['co.st.deductions', latest.deductionsCumLkr, null],
-				['co.st.total', latest.totalCumLkr, t('co.st.total.note')],
-				['co.st.present', latest.presentCumLkr, null],
-				['co.st.due', latest.curLkr, t('co.st.due.note', { d: shortDate(latest.period) })]
+				['co.st.gross', 'grossCum', t('co.st.gross.note')],
+				['co.st.adjust', 'adjustCum', null],
+				['co.st.advance', 'advanceRepayCum', latest.advanceCumLkr != null ? t('co.st.advance.note', { v: moneyText(rowSlices(latest, 'advanceCum', data)) }) : null],
+				['co.st.retention', 'retentionCum', t('co.st.retention.note', { n: (mc.contract || {}).retentionPct })],
+				['co.st.deductions', 'deductionsCum', null],
+				['co.st.total', 'totalCum', t('co.st.total.note')],
+				['co.st.present', 'presentCum', null],
+				['co.st.due', 'cur', t('co.st.due.note', { d: shortDate(latest.period) })]
 			];
 
 			return h('table', { className: 'epc-tbl' },
@@ -494,15 +553,28 @@
 					h('th', null, t('th.note')))),
 				h('tbody', null, rows.map(function (r, i) {
 					var emph = r[0] === 'co.st.total' || r[0] === 'co.st.due';
+					var slices = rowSlices(latest, r[1], data);
+					/* 'advanceRepayCum' is absent on payloads that only carry the
+					   advance paid, so the deduction is rebuilt from that figure —
+					   the row reads as a deduction, never as an addition. */
+					if (r[1] === 'advanceRepayCum' && slices.length === 0) {
+						slices = rowSlices(latest, 'advanceCum', data).map(function (e) {
+							return { label: e.label, amount: -e.amount };
+						});
+					}
+					if (r[1] === 'adjustCum' && slices.length === 0 && isNum(adjust)) {
+						slices = [{ label: (ccyList(data)[0] || {}).label || '', amount: adjust }];
+					}
+					var neg = slices.length > 0 && isNum(slices[0].amount) && slices[0].amount < 0;
 					return h('tr', { key: 's' + i },
 						h('td', { style: emph ? { fontWeight: 650 } : null }, t(r[0])),
 						h('td', {
 							className: 'r mono',
 							style: {
 								fontWeight: emph ? 650 : null,
-								color: isNum(r[1]) && r[1] < 0 ? 'var(--epc-dim)' : null
+								color: neg ? 'var(--epc-dim)' : null
 							}
-						}, grouped(r[1], 2)),
+						}, moneyText(slices, 2)),
 						h('td', { className: 'dim' }, h('div', { className: 'epc-clip', style: { maxWidth: '320px' } }, r[2] || '—')));
 				})));
 		}

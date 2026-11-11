@@ -183,9 +183,18 @@
 
 		function Kpi(props) {
 			var unit = props.unit ? h('span', { className: 'epc-kpi-u' }, props.unit) : null;
+			/* Some figures are a sum of currency slices rather than one amount, so the
+			   tile can carry extra amounts beneath the first: the largest slice keeps
+			   the large figure and the others stack under it in the same mono face. */
+			var lines = (props.lines || []).filter(function (l) { return l && l.value != null; });
 			return h('div', { className: 'epc-kpi', title: props.hint || null },
 				h('div', { className: 'epc-kpi-k' }, props.label),
 				h('div', { className: 'epc-kpi-v' }, props.value, unit),
+				lines.length > 0 ? h('div', { className: 'epc-kpi-m' }, lines.map(function (l, i) {
+					return h('div', { className: 'epc-kpi-ml', key: 'k' + i },
+						h('span', { className: 'mono' }, l.value),
+						l.unit ? h('span', { className: 'epc-kpi-u' }, l.unit) : null);
+				})) : null,
 				h('div', { className: 'epc-kpi-s' }, props.sub || null));
 		}
 

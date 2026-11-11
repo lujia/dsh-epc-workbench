@@ -42,8 +42,8 @@ PROJECT = {
     "mark": "NRS",
     "site": "Port of Almar, Valtera",
     "standpoint": "Meridian",
-    "currency": "USD",
-    "secondary": "EUR",
+    "currency": "LKR",
+    "secondary": "USD",
     "employer": "Northern Grid Authority",
     "employerFormer": "",
     "contractor": "Meridian Engineering Ltd",
@@ -51,6 +51,17 @@ PROJECT = {
     "subcontractor": "Coastal Works Ltd",
     "subcontractorFormer": "Harbour Civil Works",
 }
+
+# The demo contract is priced in two currencies: the imported plant is quoted in
+# dollars and the site works in the local currency. The slices add up to the
+# contract price, so the tiles have to print both — one is not a conversion of
+# the other. `key` is the field suffix the extractor writes and the client reads
+# the slices back from (`<base>Lkr`, `<base>Usd`).
+CURRENCIES = [
+    {"code": "LKR", "label": "LKR", "key": "Lkr", "primary": True},
+    {"code": "USD", "label": "US$", "key": "Usd", "primary": False},
+]
+PROJECT["currencies"] = CURRENCIES
 
 PARTIES = [
     {"id": "employer", "name": "Northern Grid Authority", "former": "", "abbr": "NGA", "role": "employer"},
@@ -63,23 +74,29 @@ CONTRACTS = [
         "id": "MAIN", "kind": "main", "no": "NGA/EPC/2021/07", "label": "Main contract",
         "tag": "MAIN", "counterparty": "NGA", "issuer": "MEL",
         "counterpartyName": "Northern Grid Authority", "counterpartyRole": "employer",
-        "currency": "USD",
-        "value": 96600000.0, "valueOrig": 84000000.0, "valueUsd": 7600000.0,
+        "currency": "LKR",
+        "value": 96600000.0, "valueOrig": 84000000.0, "valueUsd": 6720000.0,
+        "amounts": [{"code": "LKR", "amount": 96600000.0}, {"code": "USD", "amount": 6720000.0}],
+        "amountsOrig": [{"code": "LKR", "amount": 84000000.0}, {"code": "USD", "amount": 6720000.0}],
         "records": 14,
     },
     {
         "id": "P01", "kind": "sub", "no": "MEL-SUB-2021-11", "label": "Package 1",
         "tag": "P01", "counterparty": "CWL", "issuer": "MEL",
         "counterpartyName": "Coastal Works Ltd", "counterpartyRole": "subcontractor",
-        "currency": "USD",
-        "value": 31500000.0, "valueOrig": None, "valueUsd": 0.0, "records": 24,
+        "currency": "LKR",
+        "value": 31500000.0, "valueOrig": None, "valueUsd": 0.0,
+        "amounts": [{"code": "LKR", "amount": 31500000.0}], "amountsOrig": [],
+        "records": 24,
     },
     {
         "id": "P02", "kind": "sub", "no": "MEL-SUB-2021-12", "label": "Package 2",
         "tag": "P02", "counterparty": "CWL", "issuer": "MEL",
         "counterpartyName": "Coastal Works Ltd", "counterpartyRole": "subcontractor",
-        "currency": "USD",
-        "value": 44200000.0, "valueOrig": None, "valueUsd": 0.0, "records": 28,
+        "currency": "LKR",
+        "value": 44200000.0, "valueOrig": None, "valueUsd": 0.0,
+        "amounts": [{"code": "LKR", "amount": 44200000.0}], "amountsOrig": [],
+        "records": 28,
     },
 ]
 
@@ -503,13 +520,16 @@ def build_certificate(payments):
 
 MAIN_CONTRACT = 84000000.0
 MAIN_REVISED = 96600000.0
+# The dollar slice of the price: the bills' contractUsd column sums to this, so
+# the two slices together are the whole contract.
+MAIN_CONTRACT_USD = 6720000.0
 MAIN_ADJUST = MAIN_REVISED - MAIN_CONTRACT
 BILLS = [
     ("1", "1.1~1.6 Civil works and foundations", 26500000.0),
     ("2", "2.1~2.8 Primary plant and switchgear", 34800000.0),
     ("3", "3.1~3.5 Control, protection and SCADA", 9800000.0),
     ("4", "4.1~4.3 Spare parts and special tools", 2400000.0),
-    ("5", "5.1~5.4 Site management and logistics", 6100000.0),
+    ("5", "5.1~5.4 Site management and logistics", 4600000.0),
     ("6", "Provisional sum — mobile transformer", 4000000.0),
     ("7", "Removal and re-erection of existing gantries", 1900000.0),
 ]
@@ -577,11 +597,11 @@ def build_main_contract():
     deductions = -2100000.0
     total = round(works + MAIN_ADJUST + advance + retention + deductions, 2)
     due = round(3450000.0, 2)
+    # Every closing-statement line keeps both currency slices, because the
+    # statement prints each one: a row that only carried the local-currency
+    # amount would show a dash for the other currency and read as missing data.
     latest.update({
         "grossCumLkr": round(works + MAIN_ADJUST, 2),
-        "grossCumUsd": round((works + MAIN_ADJUST) / 12.5, 2),
-        "adjustCumLkr": MAIN_ADJUST,
-        "adjustCumUsd": round(MAIN_ADJUST / 12.5, 2),
         "totalCumLkr": total,
         "presentCumLkr": total,
         "dueCumLkr": due,
@@ -591,6 +611,13 @@ def build_main_contract():
         "deductionsCumLkr": deductions,
         "retentionLimitCumLkr": round(-retention, 2),
         "bills": bills,
+    })
+    for key in ("grossCum", "totalCum", "presentCum", "dueCum", "retentionCum",
+                "advanceRepayCum", "advanceCum", "deductionsCum", "retentionLimitCum"):
+        latest[key + "Usd"] = round(latest[key + "Lkr"] / 12.5, 2)
+    latest.update({
+        "adjustCumLkr": MAIN_ADJUST,
+        "adjustCumUsd": round(MAIN_ADJUST / 12.5, 2),
     })
 
     scans = []
@@ -620,10 +647,12 @@ def build_main_contract():
         "contract": {
             "no": "NGA/EPC/2021/07",
             "lkr": MAIN_CONTRACT,
-            "usd": 7600000.0,
+            "usd": MAIN_CONTRACT_USD,
             "revisedLkr": MAIN_REVISED,
             "originalLkr": MAIN_CONTRACT,
-            "originalUsd": 7600000.0,
+            "originalUsd": MAIN_CONTRACT_USD,
+            "amounts": [{"code": "LKR", "amount": MAIN_REVISED}, {"code": "USD", "amount": MAIN_CONTRACT_USD}],
+            "amountsOrig": [{"code": "LKR", "amount": MAIN_CONTRACT}, {"code": "USD", "amount": MAIN_CONTRACT_USD}],
             "advancePct": 7.5,
             "retentionPct": 6,
         },
@@ -716,7 +745,8 @@ def main():
 
     data = {
         "generated": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
-        "project": project,
+        "project": dict(project, currencies=CURRENCIES),
+        "currencies": CURRENCIES,
         "taxonomy": {
             "contracts": taxonomy_contracts,
             "parties": PARTIES,

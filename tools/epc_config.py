@@ -85,6 +85,30 @@ def normalise(raw):
     project.setdefault("site", "")
     project.setdefault("standpoint", "")
     project.setdefault("currency", "")
+    # The currencies the project is priced in. A contract can be certified in
+    # more than one, and the slices add up to the price rather than convert into
+    # each other, so both names have to travel with the data instead of being
+    # assumed from the primary one alone.
+    currencies = []
+    for i, c in enumerate(raw.get("currencies") or []):
+        if isinstance(c, str):
+            c = {"code": c}
+        code = (c.get("code") or "").upper()
+        if not code:
+            raise ConfigError("currencies[%d] has no code" % i)
+        currencies.append({
+            "code": code,
+            "label": c.get("label") or code,
+            "key": c.get("key") or (code[:1].upper() + code[1:].lower()),
+            "primary": bool(c.get("primary")) if "primary" in c else i == 0,
+        })
+    if not currencies and project["currency"]:
+        code = project["currency"].upper()
+        currencies.append({"code": code, "label": code,
+                           "key": code[:1].upper() + code[1:].lower(), "primary": True})
+    if currencies and not any(c["primary"] for c in currencies):
+        currencies[0]["primary"] = True
+    project["currencies"] = currencies
 
     parties = []
     for i, p in enumerate(raw.get("parties") or []):

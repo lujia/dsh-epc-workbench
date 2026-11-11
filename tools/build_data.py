@@ -1051,6 +1051,60 @@ def scan_docs():
 
 
 # --------------------------------------------------------------------------- register
+def _currencies():
+    """The currency table the client prints against every amount.
+
+    A contract can be priced in more than one currency: the bill rows carry an
+    amount per currency and they add up to the contract price, so the slices are
+    additive rather than conversions of each other. The table has to say which
+    slice is the primary one — the one whose own fields keep the bare name — and
+    what the other slices are called, because the client cannot guess either.
+    """
+    proj = (CFG or {}).get("project") or {}
+    declared = proj.get("currencies") or []
+    out = []
+    for i, c in enumerate(declared):
+        code = (c.get("code") or "").upper()
+        out.append({
+            "code": code,
+            "label": c.get("label") or code,
+            "key": (c.get("key") or (code[:1].upper() + code[1:].lower())) if code else "",
+            "primary": bool(c.get("primary")) if "primary" in c else i == 0,
+        })
+    if out:
+        return out
+    # Nothing declared: the contract currency is the primary slice and the second
+    # value the configuration carries is its own currency.
+    primary = proj.get("currency") or "LKR"
+    out.append({"code": primary, "label": primary, "key": primary[:1].upper() + primary[1:].lower(), "primary": True})
+    second = proj.get("secondCurrency")
+    if second:
+        out.append({"code": second, "label": proj.get("secondCurrencyLabel") or second,
+                    "key": second[:1].upper() + second[1:].lower(), "primary": False})
+    return out
+
+
+CURRENCIES = []
+
+
+def amounts(*pairs):
+    """A currency-ordered list of {code, amount} slices, skipping empty ones.
+
+    The client prints whatever this list holds, so a NULL slice has to be left
+    out rather than rendered as a zero: a currency the certificate never mentions
+    is not the same as a currency whose amount is nothing.
+    """
+    out = []
+    for code, value in pairs:
+        if value is None or value == "":
+            continue
+        try:
+            out.append({"code": code, "amount": round(float(value), 2)})
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
 def _main_contract_block():
     """Contract facts for the main-contract card, straight from the configuration."""
     c = (CFG["main"] if CFG else {}) or {}
@@ -1064,6 +1118,19 @@ def _main_contract_block():
         "advancePct": c.get("advancePct"),
         "retentionPct": c.get("retentionPct"),
     }
+    codes = [x["code"] for x in CURRENCIES]
+    primary = codes[0] if codes else "LKR"
+    second = codes[1] if len(codes) > 1 else "USD"
+    # the price is the sum of its slices, so both are quoted rather than one
+    # converted at a rate nobody recorded
+    out["amounts"] = amounts(
+        (primary, out["revisedLkr"]),
+        (second, out["usd"]),
+    )
+    out["amountsOrig"] = amounts(
+        (primary, out["originalLkr"]),
+        (second, out["originalUsd"]),
+    )
     return out
 
 
@@ -1079,6 +1146,9 @@ def contract_register(main_contract, retention=None):
     contract = mc.get("contract") or {}
     totals = mc.get("totals") or {}
     ret = retention or {}
+    codes = [x["code"] for x in CURRENCIES]
+    primary = codes[0] if codes else "LKR"
+    second = codes[1] if len(codes) > 1 else "USD"
     register = []
     for c in (CFG["contracts"] if CFG else []):
         party = epc_config.party(CFG, c["counterparty"])
@@ -1105,6 +1175,15 @@ def contract_register(main_contract, retention=None):
             # register quotes it and keeps the original sum beside it
             entry["value"] = contract.get("revisedLkr") or contract.get("lkr") or c.get("value")
             entry["valueOrig"] = contract.get("lkr") or c.get("value")
+            # the main contract is the one that can be priced in several currencies,
+            # so its slices travel with the register entry as well
+            entry["amounts"] = contract.get("amounts") or amounts(
+                (primary, entry["value"]), (second, entry["valueUsd"]))
+            entry["amountsOrig"] = contract.get("amountsOrig") or amounts(
+                (primary, entry["valueOrig"]), (second, c.get("originalValueUsd") or c.get("valueUsd")))
+        else:
+            entry["amounts"] = amounts((entry["currency"] or primary, entry["value"]))
+            entry["amountsOrig"] = []
         register.append(entry)
     if register:
         return register
@@ -1121,6 +1200,10 @@ def contract_register(main_contract, retention=None):
         "value": contract.get("revisedLkr") or c.get("value"),
         "valueOrig": contract.get("lkr") or c.get("value"),
         "valueUsd": c.get("valueUsd"),
+        "amounts": contract.get("amounts") or amounts(
+            (primary, contract.get("revisedLkr") or c.get("value")), (second, c.get("valueUsd"))),
+        "amountsOrig": contract.get("amountsOrig") or amounts(
+            (primary, contract.get("lkr") or c.get("value")), (second, c.get("originalValueUsd"))),
         "records": totals.get("count") or 0,
         "issuer": "",
     }]
@@ -1214,9 +1297,16 @@ def main(argv=None):
 
     sub0 = CFG["subs"][0]["id"] if CFG["subs"] else ""
 
+    global CURRENCIES
+    CURRENCIES = _currencies()
+    print("  currencies:", [c["code"] for c in CURRENCIES])
+
     data = {
         "generated": datetime.datetime.now().isoformat(timespec="seconds"),
-        "project": PROJECT,
+        # the currency table travels with the payload, so the client prints the
+        # project's own currency names rather than whatever the template assumed
+        "project": dict(PROJECT, currencies=CURRENCIES),
+        "currencies": CURRENCIES,
         "taxonomy": build_taxonomy(),
         "contracts": contract_register(main_contract, retention),
         "letters": aggregate_letters(letters),

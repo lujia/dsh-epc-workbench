@@ -97,6 +97,9 @@
 .epc-kpi-k{font:600 9.5px/1 var(--epc-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--epc-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .epc-kpi-v{font:650 21px/1.15 var(--epc-mono);font-variant-numeric:tabular-nums;letter-spacing:-.02em;display:flex;align-items:baseline;gap:4px}
 .epc-kpi-u{font:500 11px/1 var(--epc-mono);color:var(--epc-muted);letter-spacing:0}
+.epc-kpi-m{display:flex;flex-direction:column;gap:1px;margin-top:-1px}
+.epc-kpi-ml{font:600 12.5px/1.25 var(--epc-mono);font-variant-numeric:tabular-nums;letter-spacing:-.01em;display:flex;align-items:baseline;gap:4px;color:var(--epc-text)}
+.epc-kpi-ml .epc-kpi-u{font-size:10px}
 .epc-kpi-s{font-size:11px;color:var(--epc-muted);display:flex;align-items:center;gap:6px;min-height:15px}
 .epc-trend{font:600 10.5px/1 var(--epc-mono);padding:2px 5px;border-radius:4px;background:var(--epc-hover)}
 .epc-trend.up{color:var(--epc-crit)}

@@ -60,18 +60,26 @@
 			var subFirst = subScopeIds(data)[0] || '';
 
 			/* The first band is the money band, and it has to follow the selected
-			   contract: the main contract is certified by the employer in the contract currency, with
-			   a US$ split, while the subcontracts are certified by the contractor.
-			   Showing the subcontract totals while the register says 'main
-			   contract' would be the most misleading thing this page could do. */
+			   contract: the main contract is certified by the employer in the
+			   currencies the contract is priced in, while the subcontracts are
+			   certified by the contractor. Showing the subcontract totals while the
+			   register says 'main contract' would be the most misleading thing this
+			   page could do.
+			   Every amount here is a list of currency slices rather than one number,
+			   because a contract can be priced in more than one currency and no
+			   slice is a conversion of another. */
 			var mc = data.mainContract;
 			var mcLatest = (mc && mc.latest) || {};
 			var mcContract = (mc && mc.contract) || {};
 			var cur = ccyOf(data);
+			var ccyFirst = ccyList(data)[0] || {};
 			var mcCap = mainCap(mc);
 			/* Shared with the Commercial view so the two pages cannot disagree about
 			   either the progress cap or the works valuation. */
 			var mcWork = mainWorks(mc);
+			var mcCapSlices = mainCapSlices(mc, data);
+			var mcOrigSlices = mainOrigSlices(mc, data);
+			var mcWorksSlices = mainWorksSlices(mc, data);
 			var contract = contractById(data, scope) || {};
 			var mainScope = isMainScope(data, scope);
 
@@ -79,27 +87,40 @@
 			if (mainScope && mc && mc.totals) {
 				var mcAdjust = mcLatest.adjustCumLkr != null ? mcLatest.adjustCumLkr
 					: (mc.ledger && mc.ledger.length ? mc.ledger[mc.ledger.length - 1].contractorCum : null);
+				var mcAdjustSlices = rowSlices(mcLatest, 'adjustCum', data);
+				if (mcAdjustSlices.length === 0 && isNum(mcAdjust)) {
+					mcAdjustSlices = [{ label: ccyFirst.label || '', amount: mcAdjust }];
+				}
 				kpis = [
 					/* The revised price is the one the certificate card measures against,
 					   so the band uses it too — otherwise the tile would say 99% while the
-					   card below it said 88% for the same contract. */
-					{ label: t('mc.kpi.contractrev'), value: compact(mcCap), unit: cur, sub: t('mc.kpi.orig', { v: compact(mcContract.lkr) }) },
-					{ label: t('mc.kpi.certified'), value: compact(mcWork), unit: cur, sub: t('sub.ofvalue', { p: pct(mcWork, mcCap) }) },
-					{ label: t('mc.kpi.latest'), value: 'IPA ' + (mcLatest.ipa || '—'), unit: null, sub: shortDate(mcLatest.period) + ' · ' + compact(mcLatest.curLkr) + ' ' + cur },
-					{ label: t('mc.kpi.adjust'), value: compact(mcAdjust), unit: cur, sub: t('sub.ofgross', { p: pct(mcAdjust, mcLatest.grossCumLkr) }) }
+					   card below it said 88% for the same contract. The original sum is
+					   the same slices before escalation, printed per currency as well. */
+					moneyKpi('mc.kpi.contractrev', mcCapSlices, { sub: t('mc.kpi.orig', { v: moneyText(mcOrigSlices) }) }),
+					moneyKpi('mc.kpi.certified', mcWorksSlices, { sub: t('sub.ofvalue', { p: pct(mcWork, mcCap) }) }),
+					/* Same shape as the other tiles: the first currency keeps the large
+					   figure and the rest stack beneath it. */
+					moneyKpi('mc.kpi.latest', rowSlices(mcLatest, 'cur', data), { sub: 'IPA ' + (mcLatest.ipa || '—') + ' · ' + shortDate(mcLatest.period) }),
+					moneyKpi('mc.kpi.adjust', mcAdjustSlices, { sub: t('sub.ofgross', { p: pct(mcAdjust, mcLatest.grossCumLkr) }) })
 				];
 			} else {
 				var ret = lastRetention(data, scope);
 				var pkgRetention = retentionRows(data, scope);
+				var pkgCcy = contract.currency || '';
+				var pkgSlices = function (amount) {
+					return [{ label: ccyLabelFor(data, pkgCcy), amount: amount }];
+				};
 				/* The certified and paid ledgers are kept per package only for
 				   retention and advance; the certificate totals are a single
 				   combined series, so the label says so rather than implying
 				   the number belongs to the selected package alone. */
 				kpis = [
-					{ label: t('ov.kpi.contract'), value: compact(contract.value), unit: cur, sub: contract.no },
-					{ label: t('co.kpi.certified.all'), value: compact(payments.totals.certified), unit: cur, sub: t('sub.certs', { n: certRows(data).length }) },
-					{ label: t('co.kpi.retention'), value: compact(ret ? ret.retCum : null), unit: cur, sub: t('sub.certs', { n: pkgRetention.length }) },
-					{ label: t('co.kpi.advance'), value: compact(ret ? ret.advCum : null), unit: cur, sub: (ret ? ret.ipc : '—') }
+					moneyKpi('ov.kpi.contract', sliceList(contract.amounts, data).length
+						? sliceList(contract.amounts, data)
+						: pkgSlices(contract.value), { sub: contract.no }),
+					moneyKpi('co.kpi.certified.all', pkgSlices(payments.totals.certified), { sub: t('sub.certs', { n: certRows(data).length }) }),
+					moneyKpi('co.kpi.retention', pkgSlices(ret ? ret.retCum : null), { sub: t('sub.certs', { n: pkgRetention.length }) }),
+					moneyKpi('co.kpi.advance', pkgSlices(ret ? ret.advCum : null), { sub: (ret ? ret.ipc : '—') })
 				];
 			}
 
@@ -159,26 +180,37 @@
 								h('div', null,
 									h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' } },
 										h('span', { style: { fontSize: '11.5px', color: 'var(--epc-muted)' } }, t('co.st.total')),
-										h('span', { className: 'epc-mono', style: { fontSize: '15px', fontWeight: 650 } }, grouped(mcLatest.totalCumLkr, 2))),
+										h('span', { className: 'epc-mono', style: { fontSize: '15px', fontWeight: 650 } }, moneyText(rowSlices(mcLatest, 'totalCum', data), 2))),
 									/* The revised contract price is the right denominator for progress, and
 									   the numerator has to be the works valuation only: price adjustment
 									   sits on top of the contract price rather than inside it, so
 									   measuring net certified against it would push the bar past 100%
-									   and read as an error rather than as an escalation claim. */
+									   and read as an error rather than as an escalation claim.
+									   The bar is a ratio, so it stays on the primary currency: dividing
+									   a valuation in one currency by a price in another is a number
+									   without a meaning. */
 									h(ProgressBar, { value: mcCap > 0 ? Math.min(1, mcWork / mcCap) : 0, title: pct(mcWork, mcCap) }),
 									h('div', { style: { display: 'flex', justifyContent: 'space-between', marginTop: '5px', fontSize: '11px', color: 'var(--epc-dim)' } },
 										h('span', null, t('ov.cert.workrevised', { p: pct(mcWork, mcCap) })),
-										h('span', null, grouped(mcCap)))),
+										h('span', null, moneyText(mcCapSlices)))),
+								/* Every line of the closing statement is certified in each
+								   currency the contract is priced in, so each row prints all
+								   of them. */
 								h('dl', { className: 'epc-kv' },
-									h('dt', null, t('co.st.gross')), h('dd', { className: 'epc-mono' }, grouped(mcLatest.grossCumLkr, 2)),
-									h('dt', null, t('co.st.adjust')), h('dd', { className: 'epc-mono' }, grouped(mcLatest.adjustCumLkr, 2)),
+									h('dt', null, t('co.st.gross')), h('dd', { className: 'epc-mono' }, moneyText(rowSlices(mcLatest, 'grossCum', data), 2)),
+									h('dt', null, t('co.st.adjust')), h('dd', { className: 'epc-mono' }, moneyText(rowSlices(mcLatest, 'adjustCum', data), 2)),
 									/* The label says repayment, so the figure has to be the deduction
 									   rather than the advance originally paid — otherwise the row reads
 									   as a positive addition to the certified value. */
-									h('dt', null, t('co.st.advance')), h('dd', { className: 'epc-mono' }, grouped(mcLatest.advanceRepayCumLkr != null ? mcLatest.advanceRepayCumLkr : (isNum(mcLatest.advanceCumLkr) ? -mcLatest.advanceCumLkr : null), 2)),
-									h('dt', null, t('co.st.retention')), h('dd', { className: 'epc-mono' }, grouped(mcLatest.retentionCumLkr, 2)),
-									h('dt', null, t('co.st.deductions')), h('dd', { className: 'epc-mono' }, grouped(mcLatest.deductionsCumLkr, 2)),
-									h('dt', null, t('co.st.due')), h('dd', { className: 'epc-mono', style: { fontWeight: 650, color: 'var(--epc-accent)' } }, grouped(mcLatest.dueCumLkr, 2)))))
+									h('dt', null, t('co.st.advance')), h('dd', { className: 'epc-mono' },
+										moneyText(rowSlices(mcLatest, 'advanceRepayCum', data).length
+											? rowSlices(mcLatest, 'advanceRepayCum', data)
+											: rowSlices(mcLatest, 'advanceCum', data).map(function (e) {
+												return { label: e.label, amount: -e.amount };
+											}), 2)),
+									h('dt', null, t('co.st.retention')), h('dd', { className: 'epc-mono' }, moneyText(rowSlices(mcLatest, 'retentionCum', data), 2)),
+									h('dt', null, t('co.st.deductions')), h('dd', { className: 'epc-mono' }, moneyText(rowSlices(mcLatest, 'deductionsCum', data), 2)),
+									h('dt', null, t('co.st.due')), h('dd', { className: 'epc-mono', style: { fontWeight: 650, color: 'var(--epc-accent)' } }, moneyText(rowSlices(mcLatest, 'dueCum', data), 2)))))
 
 						: h(Card, {
 							title: t('ov.cert.title'),
@@ -214,7 +246,9 @@
 							(contractList(data) || []).map(function (c) {
 								return h('div', { key: 'c-' + c.id, style: { display: 'contents' } },
 									h('dt', null, c.label || c.id),
-									h('dd', { className: 'epc-mono' }, c.no + ' · ' + compact(c.value) + ' ' + c.currency));
+									h('dd', { className: 'epc-mono' }, c.no + ' · ' + moneyText(sliceList(c.amounts, data).length
+										? sliceList(c.amounts, data)
+										: [{ label: ccyLabelFor(data, c.currency), amount: c.value }])));
 							})),
 						h('div', { className: 'epc-note', style: { borderTop: 0, padding: '8px 0 0', background: 'transparent' } }, t('scope.rename.note')),
 						h('div', { style: { marginTop: '2px' } },
