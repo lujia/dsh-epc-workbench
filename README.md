@@ -62,9 +62,12 @@ JSON routes), `client.js` is the built client half, `cordis.patch.yml` mounts it
 Web UI.
 
 ```bash
-# from a checkout
-dsh plugin add /path/to/EPC_Workbench      # or: plugin_manager install_bundle
+git clone https://github.com/lujia/dsh-epc-workbench
+dsh plugin add ./dsh-epc-workbench        # or: plugin_manager install_bundle
 ```
+
+The workbench then appears as a page in the Harness Web UI and renders the demo dataset
+until `data/` is rebuilt from a real corpus.
 
 `package.json` `files` lists only the runtime surface — host half, client bundle, icon,
 patch, locales and the two dataset files. `src/`, `tools/` and `preview/` are development
