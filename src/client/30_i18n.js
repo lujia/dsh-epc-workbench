@@ -325,7 +325,7 @@
 
 		var ZH = {
 			'meta.title': 'EPC 项目管理工作台',
-			'meta.description': '煤场扩建 EPC 分包的项目控制台 — 进度、付款、往来函件、会议纪要、缺陷与文档。',
+			'meta.description': 'EPC 合同的项目控制台 — 进度、付款、往来函件、会议纪要、缺陷与文档。',
 			'nav.panel': 'EPC 工作台',
 			'app.loading': '正在加载项目数据…',
 			'app.error': '无法加载项目数据集。',

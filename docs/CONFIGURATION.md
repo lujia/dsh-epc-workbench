@@ -114,9 +114,9 @@ Where the records live, relative to `sources.root`.
 | `meetings` | List of `{dir, series, contract, label}` |
 
 `series` is the internal key the index stores per row; `label` is what the interface
-prints. Keeping them separate is what lets the same code serve a project whose series
-are called `issued_ceb` and one whose series are called `issued_nga` — the label is
-configuration, the key is only a join.
+prints. Keeping them separate is what lets the same code serve two projects whose letter
+series have different keys and different printed labels — the label is configuration, the
+key is only a join.
 
 Every source is optional. A key that is missing or points at a folder that does not
 exist yields an empty section rather than an error, so a workbench can be built
