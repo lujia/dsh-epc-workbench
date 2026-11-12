@@ -179,6 +179,27 @@ corpus contains contract sums, party names and correspondence subjects — keep
 `workbench.config.json` and any real `data/` out of version control. `.gitignore`
 already excludes the former, and `preview/` output.
 
+## Publishing a release
+
+The package name is `dsh-epc-workbench` and it is unscoped, so `publishConfig.access`
+is `public`. Publishing needs an npm account with publish rights on that name:
+
+```bash
+pnpm login                 # or: npm login
+pnpm pack --pack-destination .     # inspect what would be uploaded
+pnpm publish --no-git-checks       # --tag next for a pre-release
+```
+
+`pnpm pack` is the check that matters: it prints the exact file list, and the list must
+never contain `workbench.config.json`, `src/`, `preview/` or `.git`. Bump `version`
+before each publish — npm refuses to overwrite a version that already exists.
+
+Anyone can then install it into their own Harness profile:
+
+```bash
+dsh plugin add dsh-epc-workbench
+```
+
 ## Licence
 
 MIT — see [LICENSE](LICENSE).
