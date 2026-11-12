@@ -1,9 +1,29 @@
 {
-  "name": "@local/epc-workbench",
+  "name": "dsh-epc-workbench",
   "version": "1.0.0",
-  "private": true,
   "type": "module",
   "description": "EPC project management workbench: progress, payments, correspondence, meetings, defects and documents, read against any of a project's contracts.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lujia/dsh-epc-workbench.git"
+  },
+  "homepage": "https://github.com/lujia/dsh-epc-workbench#readme",
+  "bugs": {
+    "url": "https://github.com/lujia/dsh-epc-workbench/issues"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "epc",
+    "construction",
+    "project-controls",
+    "dashboard"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./index.js",
   "exports": {
     ".": "./index.js",
@@ -21,7 +41,14 @@
     "locale/en.json",
     "locale/zh.json",
     "data/workbench.json",
-    "data/index.json"
+    "data/index.json",
+    "workbench.config.example.json",
+    "docs/CONFIGURATION.md",
+    "docs/img/overview.png",
+    "docs/img/commercial.png",
+    "tools/build_data.py",
+    "tools/epc_config.py",
+    "tools/make_demo.py"
   ],
   "icon": "./icon.svg",
   "engines": {

@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-	id: '@local/epc-workbench',
+	id: 'dsh-epc-workbench',
 	factory: function (require) {
 		var React = require('react');
 		var h = React.createElement;

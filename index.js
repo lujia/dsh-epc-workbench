@@ -15,7 +15,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-const name = '@local/epc-workbench';
+const name = 'dsh-epc-workbench';
 
 /** Absolute package root — this file lives at <root>/index.js. */
 const ROOT = dirname(fileURLToPath(import.meta.url));

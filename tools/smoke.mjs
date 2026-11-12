@@ -135,7 +135,7 @@ vm.runInContext(source, context, { filename: 'client.js' })
 
 const spec = sandbox.__SPEC__
 if (!spec) throw new Error('client.js did not call window.__ModuleLoader__.load')
-if (spec.id !== '@local/epc-workbench') throw new Error(`unexpected module id: ${spec.id}`)
+if (spec.id !== 'dsh-epc-workbench') throw new Error(`unexpected module id: ${spec.id}`)
 
 const moduleExports = spec.factory((name) => {
   if (name === 'react') return React

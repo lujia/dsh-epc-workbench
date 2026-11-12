@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-	id: '@local/epc-workbench',
+	id: 'dsh-epc-workbench',
 	factory: function (require) {
 		var React = require('react');
 		var h = React.createElement;
@@ -3397,11 +3397,11 @@ function contractList(data) {
 		/* ============================ styles ============================ */
 		function injectCss() {
 			if (typeof document === 'undefined') return;
-			var id = '@local/epc-workbench/style.css';
+			var id = 'dsh-epc-workbench/style.css';
 			var existing = document.querySelector('style[data-plugin-css="' + id + '"]');
 			if (existing !== null) { existing.textContent = CSS; return; }
 			var el = document.createElement('style');
-			el.dataset.plugin = '@local/epc-workbench';
+			el.dataset.plugin = 'dsh-epc-workbench';
 			el.dataset.pluginCss = id;
 			el.textContent = CSS;
 			document.head.appendChild(el);
@@ -3435,7 +3435,7 @@ function contractList(data) {
 					ctx.effect(function () {
 						var dispose = locale.register(NAMESPACE, { zh: ZH, en: EN });
 						return function () { if (typeof dispose === 'function') dispose(); };
-					}, '@local/epc-workbench: locale copy');
+					}, 'dsh-epc-workbench: locale copy');
 					if (typeof locale.bind === 'function') T_NOW = locale.bind(NAMESPACE);
 					else T_NOW = function (key) { return (EN[key] != null ? EN[key] : key); };
 				} catch (err) {
@@ -3498,7 +3498,7 @@ function contractList(data) {
 						try { if (typeof dispose === 'function') dispose(); } catch (err) { /* ignore */ }
 					});
 				};
-			}, '@local/epc-workbench: slots');
+			}, 'dsh-epc-workbench: slots');
 		}
 
 		/* ============================ module ============================ */

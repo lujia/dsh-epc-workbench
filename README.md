@@ -61,17 +61,28 @@ The package root is the plugin: `index.js` is the host half (it registers two re
 JSON routes), `client.js` is the built client half, `cordis.patch.yml` mounts it into the
 Web UI.
 
+From npm:
+
+```bash
+dsh plugin add dsh-epc-workbench       # or: plugin_manager install_bundle
+```
+
+From a checkout:
+
 ```bash
 git clone https://github.com/lujia/dsh-epc-workbench
-dsh plugin add ./dsh-epc-workbench        # or: plugin_manager install_bundle
+dsh plugin add ./dsh-epc-workbench     # or: plugin_manager install_bundle
 ```
 
 The workbench then appears as a page in the Harness Web UI and renders the demo dataset
 until `data/` is rebuilt from a real corpus.
 
-`package.json` `files` lists only the runtime surface — host half, client bundle, icon,
-patch, locales and the two dataset files. `src/`, `tools/` and `preview/` are development
-aids and are not needed at runtime.
+The npm package carries the runtime surface plus what is needed to point it at your own
+records: `index.js`, `client.js`, `icon.svg`, `cordis.patch.yml`, the two locales, the
+demo dataset, `workbench.config.example.json`, `docs/CONFIGURATION.md` and the three
+extractor scripts (`tools/build_data.py`, `tools/epc_config.py`, `tools/make_demo.py`).
+`src/`, `preview/` and the client build/smoke i18n scripts are development aids that only
+the git checkout has.
 
 ## Rebuilding
 
