@@ -139,6 +139,52 @@
 			return n;
 		}
 
+		/* ============================ project folder ============================ */
+		/* The workbench ships with a synthetic dataset so a fresh install shows a
+		   working page. Reading a real project means pointing it at that project's
+		   folder: the choice is made here and the reading happens in the host half,
+		   because a page cannot open the filesystem by itself. */
+		function sourceName(active) {
+			if (!active) return t('src.bundled');
+			if (active.source !== 'folder') return t('src.bundled');
+			if (active.folder) {
+				var parts = String(active.folder).split(/[\\/]/).filter(function (s) { return s !== ''; });
+				return parts.length > 0 ? parts[parts.length - 1] : String(active.folder);
+			}
+			return t('src.folder');
+		}
+
+		function SourceBar(props) {
+			var active = props.active;
+			var busy = props.busy;
+			var error = props.error;
+			var isFolder = active && active.source === 'folder';
+			return h('div', { className: 'epc-src' + (isFolder ? ' on' : '') },
+				h('span', { className: 'epc-src-k' }, t('src.title')),
+				h('span', { className: 'epc-src-v' },
+					h('span', { className: 'epc-src-name' }, sourceName(active)),
+					isFolder && active.builtAt
+						? h('span', { className: 'epc-src-when' }, t('src.read', { date: shortDate(String(active.builtAt).slice(0, 10)) }))
+						: h('span', { className: 'epc-src-when' }, t('src.bundled.note'))),
+				error !== null && error !== void 0
+					? h('span', { className: 'epc-src-err', title: String(error) }, t('src.failed'))
+					: null,
+				busy
+					? h('span', { className: 'epc-src-busy' }, h('i', { className: 'epc-dot' }), t('src.reading'))
+					: null,
+				h('span', { className: 'grow' }),
+				busy ? null : h('button', {
+					className: 'epc-btn',
+					onClick: props.onPick,
+					title: t('src.pick.hint')
+				}, t('src.pick')),
+				!busy && isFolder ? h('button', {
+					className: 'epc-btn',
+					onClick: props.onReset,
+					title: t('src.reset.hint')
+				}, t('src.reset')) : null);
+		}
+
 		function Workbench(props) {
 			/* The scope is an empty placeholder until the data arrives: the contract
 			   ids come from the dataset, so there is no id to default to at compile
@@ -148,6 +194,13 @@
 			var [mini, setMini] = useState(false);
 			var [palette, setPalette] = useState(false);
 			var [scope, setScope] = useState('');
+			/* What the host is serving and whether it is reading a folder right
+			   now. Both come from the host half, so the button state and the page
+			   cannot disagree about which project is on screen. */
+			var [source, setSource] = useState({ active: null, build: null });
+			var [reading, setReading] = useState(false);
+			var [sourceError, setSourceError] = useState(null);
+			var [readProgress, setReadProgress] = useState('');
 
 			function load() {
 				setState({ status: 'loading', data: null, error: null });
@@ -160,6 +213,18 @@
 
 			useEffect(load, []);
 
+			/* The host answers /state with what it is serving. Asking once on mount
+			   keeps the strip honest after a reload, when the previously picked
+			   folder is still the one being served. */
+			function readState() {
+				return fetch(STATE_URL, { credentials: 'same-origin' })
+					.then(function (res) { return res.ok ? res.json() : null; })
+					.then(function (json) { if (json) setSource(json); return json; })
+					.catch(function () { return null; });
+			}
+
+			useEffect(function () { readState(); }, []);
+
 			/* The register arrives with the payload, so the selected contract is
 			   settled here rather than in the initial state. A scope that no longer
 			   exists after a rebuild falls back to the main contract instead of
@@ -169,6 +234,64 @@
 				var next = resolveScope(state.data, scope);
 				if (next && next !== scope) setScope(next);
 			}, [state.status, state.data]);
+
+			/* Picking a folder is: choose it, tell the host, wait for the build, then
+			   drop the cached parse and reload. Reading a real project takes a
+			   minute or two, so the wait is a poll of /state rather than one long
+			   request that a proxy could time out. */
+			function pickFolder() {
+				var workspace = typeof props.ctx.get === 'function' ? props.ctx.get('uiWorkspace') : null;
+				if (!workspace || typeof workspace.pickDirectory !== 'function') {
+					setSourceError(t('src.no.picker'));
+					return;
+				}
+				setSourceError(null);
+				Promise.resolve(workspace.pickDirectory()).then(function (folder) {
+					if (!folder) return null;
+					setReading(true);
+					setReadProgress(t('src.reading'));
+					return postJson(FOLDER_URL, { folder: folder }).then(function () {
+						return waitForBuild(folder, 0);
+					});
+				}).catch(function (err) {
+					setReading(false);
+					setSourceError(String(err && err.message ? err.message : err));
+				});
+			}
+
+			function waitForBuild(folder, tries) {
+				return readState().then(function (json) {
+					var b = json && json.build ? json.build : null;
+					if (b && b.progress) {
+						var line = String(b.progress).split(/\r?\n/).filter(function (s) { return s.trim() !== ''; });
+						if (line.length > 0) setReadProgress(line[line.length - 1].trim().slice(0, 120));
+					}
+					if (b && b.status === 'running' && tries < 600) {
+						return new Promise(function (resolve) { setTimeout(resolve, 1000); })
+							.then(function () { return waitForBuild(folder, tries + 1); });
+					}
+					setReading(false);
+					if (b && b.status === 'error') {
+						setSourceError(b.error || t('src.failed'));
+						return null;
+					}
+					resetData();
+					load();
+					return null;
+				});
+			}
+
+			function resetSource() {
+				setReading(false);
+				setSourceError(null);
+				postJson(RESET_URL, {}).then(function () {
+					resetData();
+					load();
+					readState();
+				}).catch(function (err) {
+					setSourceError(String(err && err.message ? err.message : err));
+				});
+			}
 
 			useEffect(function () {
 				function onKey(e) {
@@ -215,7 +338,11 @@
 			}
 
 			var body = null;
-			if (state.status === 'loading') body = h(Loading);
+			if (reading) {
+				body = h('div', { className: 'epc-wait' },
+					h('div', { className: 'epc-wait-k' }, t('src.reading')),
+					h('div', { className: 'epc-wait-l' }, readProgress || t('src.reading.hint')));
+			} else if (state.status === 'loading') body = h(Loading);
 			else if (state.status === 'error') {
 				body = h('div', { className: 'epc-err' },
 					t('app.error'), h('br'),
@@ -304,6 +431,14 @@
 								h('span', { className: 'epc-navlabel' }, mini ? t('action.expand') : t('action.collapse'))))),
 
 					h('div', { className: 'epc-stage' },
+						h('div', { className: 'epc-sourcebar' },
+							h(SourceBar, {
+								active: source && source.active ? source.active : null,
+								busy: reading,
+								error: sourceError,
+								onPick: pickFolder,
+								onReset: resetSource
+							})),
 						h('div', { className: 'epc-scroll' }, body))),
 
 				h('div', { className: 'epc-status' },

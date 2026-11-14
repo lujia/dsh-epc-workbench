@@ -39,6 +39,32 @@
 			return INDEX_PROMISE;
 		}
 
+		/* Reading a different project folder replaces both files, so the cached
+		   parse has to go as well — otherwise the page that says it is showing the
+		   new folder would still be rendering the old one. */
+		function resetData() {
+			DATA_CACHE = null;
+			DATA_PROMISE = null;
+			INDEX_CACHE = null;
+			INDEX_PROMISE = null;
+		}
+
+		function postJson(url, body) {
+			return fetch(url, {
+				method: 'POST',
+				credentials: 'same-origin',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(body || {}),
+			}).then(function (res) {
+				return res.json().catch(function () { return {}; }).then(function (json) {
+					if (!res.ok) {
+						throw new Error((json && json.message) || ('HTTP ' + res.status + ' — ' + url));
+					}
+					return json;
+				});
+			});
+		}
+
 		/* ============================ formatting ============================ */
 		var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 

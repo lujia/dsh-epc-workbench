@@ -171,6 +171,24 @@
 .epc-err{margin:24px;padding:14px 16px;border:1px solid var(--epc-crit);border-radius:8px;background:color-mix(in srgb,var(--epc-crit) 10%,transparent);color:var(--epc-text);font-size:12.5px}
 .epc-err code{font-family:var(--epc-mono);color:var(--epc-crit)}
 .epc-note{font-size:11.5px;color:var(--epc-dim);padding:8px 14px;border-top:1px solid var(--epc-line);background:var(--epc-panel2)}
+
+/* ---------- project folder strip ---------- */
+.epc-sourcebar{flex:none;padding:10px 24px 0;background:var(--epc-bg)}
+.epc-src{display:flex;align-items:center;gap:9px;min-height:32px;padding:5px 10px;border:1px solid var(--epc-line2);border-radius:7px;background:var(--epc-panel2);font-size:11.5px;color:var(--epc-muted);min-width:0}
+.epc-src.on{border-color:color-mix(in srgb,var(--epc-accent) 45%,var(--epc-line2));background:color-mix(in srgb,var(--epc-accent) 8%,var(--epc-panel2))}
+.epc-src-k{font:600 9.5px/1 var(--epc-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--epc-dim);flex:none}
+.epc-src-v{display:flex;align-items:baseline;gap:8px;min-width:0}
+.epc-src-name{color:var(--epc-text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.epc-src-when{font:500 10.5px/1 var(--epc-mono);color:var(--epc-dim);white-space:nowrap}
+.epc-src-busy{display:flex;align-items:center;gap:6px;color:var(--epc-accent);font-weight:600;white-space:nowrap}
+.epc-src-busy .epc-dot{animation:epc-pulse 1.1s ease-in-out infinite}
+.epc-src-err{color:var(--epc-crit);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:38ch}
+.epc-src .grow{flex:1 1 auto}
+.epc-wait{display:flex;flex-direction:column;gap:7px;align-items:flex-start;padding:36px 30px;margin:8px 0 0;border:1px solid var(--epc-line2);border-radius:8px;background:var(--epc-panel2)}
+.epc-wait-k{font-weight:650;font-size:13px;color:var(--epc-text);display:flex;align-items:center;gap:8px}
+.epc-wait-k::after{content:"";width:9px;height:9px;border-radius:99px;background:var(--epc-accent);animation:epc-pulse 1.1s ease-in-out infinite}
+.epc-wait-l{font:500 11px/1.5 var(--epc-mono);color:var(--epc-dim);white-space:pre-wrap;word-break:break-word;max-width:70ch}
+@keyframes epc-pulse{0%,100%{opacity:1}50%{opacity:.25}}
 .epc-sectlabel{display:flex;align-items:center;gap:10px;color:var(--epc-dim);font:600 9.5px/1 var(--epc-mono);letter-spacing:.12em;text-transform:uppercase;margin:6px 0 -4px}
 .epc-sectlabel::after{content:"";flex:1 1 auto;height:1px;background:var(--epc-line2)}
 

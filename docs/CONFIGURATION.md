@@ -3,10 +3,20 @@
 The plugin ships with a demo dataset, so it renders the moment it is installed and
 needs no configuration at all. This file explains how to point it at a real project.
 
-Everything project-specific lives in one JSON file. `tools/epc_config.py` reads it,
-`tools/build_data.py` turns the corpus it describes into `data/workbench.json` and
-`data/index.json`, and the client renders whatever those two files contain. No party
-name, contract number or folder name is compiled into the plugin.
+For most projects you do not need to write any of it: press **Choose folder** above the
+page and pick the project folder. `tools/discover_folder.py` derives everything below
+from the records — parties, contracts, letter series, minute books, registers, sheets,
+defect workbook, document folders, currencies — writes the result to
+`$DSH_HOME/cache/epc-workbench/<hash>/workbench.config.json` and builds the dataset
+beside it. The picked folder is only read. What discovery cannot establish is left
+blank and reported on the page rather than guessed.
+
+Write a configuration by hand when you want to override what discovery found, or when
+the corpus is not laid out in a way discovery recognises. Everything project-specific
+lives in one JSON file. `tools/epc_config.py` reads it, `tools/build_data.py` turns the
+corpus it describes into `data/workbench.json` and `data/index.json`, and the client
+renders whatever those two files contain. No party name, contract number or folder
+name is compiled into the plugin.
 
 ## Where the file is looked up
 
@@ -18,6 +28,9 @@ name, contract number or folder name is compiled into the plugin.
 Relative paths inside the file resolve against the file's own directory, so a config
 can live next to the corpus and still work from any working directory. Keep the real
 config out of version control: `.gitignore` already excludes `workbench.config.json`.
+
+A discovered config keeps `letters` and `meetings` at the top level while a hand-written
+one usually nests them under `sources`; both spellings are accepted.
 
 ## `project`
 
@@ -127,12 +140,35 @@ incrementally: start with letters, add payments later.
 ```bash
 python tools/build_data.py                 # uses workbench.config.json
 python tools/build_data.py my-project.json # or an explicit file
-python tools/build_client.mjs              # only needed after editing src/client/*.js
+node   tools/build_client.mjs              # only needed after editing src/client/*.js
 ```
+
+From a bare folder, without writing a configuration first:
+
+```bash
+python tools/discover_folder.py <project-folder> out/workbench.config.json out/data
+python tools/build_data.py out/workbench.config.json
+```
+
+`discover_folder.py` prints one `note:` line per fact it could not establish and a final
+`NOTES <json>` line that the interface reads back.
 
 The host half caches the parsed dataset by file size and mtime, so a rebuild is picked
 up on the next request. Changes to `index.js` itself need the bundle toggled off and on
 in the plugin manager.
+
+The folder reader looks for a Python with `openpyxl` in this order:
+`EPC_WORKBENCH_PYTHON`, `$DSH_HOME/dsh-runtimes/dsh-primary-runtime/dependencies/python/python.exe`,
+that same runtime's `bin/python3`, then `python3` / `python` on `PATH`.
+
+## Reading a folder from the interface
+
+`POST /plugins/epc-workbench/folder` with `{"folder": "<absolute path>"}` starts a
+background build and answers `202`; `GET /plugins/epc-workbench/state` reports
+`{active, build}` with the extractor's tail output while it runs; `POST /plugins/epc-workbench/reset`
+drops the folder and serves the bundled dataset again. The chosen folder is remembered in
+`$DSH_HOME/cache/epc-workbench/state.json`, and a folder that no longer exists falls back
+to the bundled dataset instead of breaking the page.
 
 ## Regenerating the demo dataset
 

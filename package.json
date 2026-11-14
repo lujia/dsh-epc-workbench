@@ -1,6 +1,6 @@
 {
   "name": "dsh-epc-workbench",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "description": "EPC project management workbench: progress, payments, correspondence, meetings, defects and documents, read against any of a project's contracts.",
   "license": "MIT",
@@ -48,6 +48,7 @@
     "docs/img/commercial.png",
     "tools/build_data.py",
     "tools/epc_config.py",
+    "tools/discover_folder.py",
     "tools/make_demo.py"
   ],
   "icon": "./icon.svg",

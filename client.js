@@ -11,8 +11,12 @@ window.__ModuleLoader__.load({
 
 		var PANEL_ID = 'epc-workbench';
 		var NAMESPACE = 'plugin.epc-workbench';
-		var DATA_URL = '/plugins/epc-workbench/data';
-		var INDEX_URL = '/plugins/epc-workbench/index';
+		var ROUTE_PREFIX = '/plugins/epc-workbench';
+		var DATA_URL = ROUTE_PREFIX + '/data';
+		var INDEX_URL = ROUTE_PREFIX + '/index';
+		var STATE_URL = ROUTE_PREFIX + '/state';
+		var FOLDER_URL = ROUTE_PREFIX + '/folder';
+		var RESET_URL = ROUTE_PREFIX + '/reset';
 
 		var CSS = String.raw`
 .epc-root{
@@ -187,6 +191,24 @@ window.__ModuleLoader__.load({
 .epc-err{margin:24px;padding:14px 16px;border:1px solid var(--epc-crit);border-radius:8px;background:color-mix(in srgb,var(--epc-crit) 10%,transparent);color:var(--epc-text);font-size:12.5px}
 .epc-err code{font-family:var(--epc-mono);color:var(--epc-crit)}
 .epc-note{font-size:11.5px;color:var(--epc-dim);padding:8px 14px;border-top:1px solid var(--epc-line);background:var(--epc-panel2)}
+
+/* ---------- project folder strip ---------- */
+.epc-sourcebar{flex:none;padding:10px 24px 0;background:var(--epc-bg)}
+.epc-src{display:flex;align-items:center;gap:9px;min-height:32px;padding:5px 10px;border:1px solid var(--epc-line2);border-radius:7px;background:var(--epc-panel2);font-size:11.5px;color:var(--epc-muted);min-width:0}
+.epc-src.on{border-color:color-mix(in srgb,var(--epc-accent) 45%,var(--epc-line2));background:color-mix(in srgb,var(--epc-accent) 8%,var(--epc-panel2))}
+.epc-src-k{font:600 9.5px/1 var(--epc-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--epc-dim);flex:none}
+.epc-src-v{display:flex;align-items:baseline;gap:8px;min-width:0}
+.epc-src-name{color:var(--epc-text);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.epc-src-when{font:500 10.5px/1 var(--epc-mono);color:var(--epc-dim);white-space:nowrap}
+.epc-src-busy{display:flex;align-items:center;gap:6px;color:var(--epc-accent);font-weight:600;white-space:nowrap}
+.epc-src-busy .epc-dot{animation:epc-pulse 1.1s ease-in-out infinite}
+.epc-src-err{color:var(--epc-crit);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:38ch}
+.epc-src .grow{flex:1 1 auto}
+.epc-wait{display:flex;flex-direction:column;gap:7px;align-items:flex-start;padding:36px 30px;margin:8px 0 0;border:1px solid var(--epc-line2);border-radius:8px;background:var(--epc-panel2)}
+.epc-wait-k{font-weight:650;font-size:13px;color:var(--epc-text);display:flex;align-items:center;gap:8px}
+.epc-wait-k::after{content:"";width:9px;height:9px;border-radius:99px;background:var(--epc-accent);animation:epc-pulse 1.1s ease-in-out infinite}
+.epc-wait-l{font:500 11px/1.5 var(--epc-mono);color:var(--epc-dim);white-space:pre-wrap;word-break:break-word;max-width:70ch}
+@keyframes epc-pulse{0%,100%{opacity:1}50%{opacity:.25}}
 .epc-sectlabel{display:flex;align-items:center;gap:10px;color:var(--epc-dim);font:600 9.5px/1 var(--epc-mono);letter-spacing:.12em;text-transform:uppercase;margin:6px 0 -4px}
 .epc-sectlabel::after{content:"";flex:1 1 auto;height:1px;background:var(--epc-line2)}
 
@@ -273,6 +295,32 @@ window.__ModuleLoader__.load({
 				});
 			}
 			return INDEX_PROMISE;
+		}
+
+		/* Reading a different project folder replaces both files, so the cached
+		   parse has to go as well — otherwise the page that says it is showing the
+		   new folder would still be rendering the old one. */
+		function resetData() {
+			DATA_CACHE = null;
+			DATA_PROMISE = null;
+			INDEX_CACHE = null;
+			INDEX_PROMISE = null;
+		}
+
+		function postJson(url, body) {
+			return fetch(url, {
+				method: 'POST',
+				credentials: 'same-origin',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(body || {}),
+			}).then(function (res) {
+				return res.json().catch(function () { return {}; }).then(function (json) {
+					if (!res.ok) {
+						throw new Error((json && json.message) || ('HTTP ' + res.status + ' — ' + url));
+					}
+					return json;
+				});
+			});
 		}
 
 		/* ============================ formatting ============================ */
@@ -786,6 +834,19 @@ window.__ModuleLoader__.load({
 			'status.records': '{n} records',
 			'status.data': 'data {date}',
 			'status.live': 'local dataset',
+			'src.title': 'Project',
+			'src.bundled': 'Demo dataset',
+			'src.bundled.note': 'shipped with the plugin',
+			'src.folder': 'Project folder',
+			'src.read': 'read {date}',
+			'src.reading': 'Reading the project folder…',
+			'src.reading.hint': 'Discovery is reading the letters, minutes and certificates. A large project takes a minute or two.',
+			'src.pick': 'Choose folder',
+			'src.pick.hint': 'Read a project folder from this machine. The folder is opened read-only.',
+			'src.reset': 'Use demo data',
+			'src.reset.hint': 'Go back to the dataset that ships with the plugin.',
+			'src.failed': 'Could not read that folder',
+			'src.no.picker': 'This page cannot open a folder chooser here. Set the folder in the workbench configuration instead.',
 			'kind.L': 'Letter',
 			'kind.M': 'Meeting',
 			'kind.D': 'Defect',
@@ -1110,6 +1171,19 @@ window.__ModuleLoader__.load({
 			'status.records': '{n} 条记录',
 			'status.data': '数据 {date}',
 			'status.live': '本地数据集',
+			'src.title': '项目',
+			'src.bundled': '演示数据集',
+			'src.bundled.note': '随插件附带',
+			'src.folder': '项目文件夹',
+			'src.read': '读取于 {date}',
+			'src.reading': '正在读取项目文件夹…',
+			'src.reading.hint': '正在识别函件、会议纪要与证书。较大的项目需要一两分钟。',
+			'src.pick': '选择文件夹',
+			'src.pick.hint': '读取本机上的项目文件夹，仅以只读方式访问。',
+			'src.reset': '使用演示数据',
+			'src.reset.hint': '回到插件自带的演示数据集。',
+			'src.failed': '无法读取该文件夹',
+			'src.no.picker': '当前页面无法打开文件夹选择器，请在插件配置中指定文件夹。',
 			'kind.L': '函件',
 			'kind.M': '会议',
 			'kind.D': '缺陷',
@@ -3215,6 +3289,52 @@ function contractList(data) {
 			return n;
 		}
 
+		/* ============================ project folder ============================ */
+		/* The workbench ships with a synthetic dataset so a fresh install shows a
+		   working page. Reading a real project means pointing it at that project's
+		   folder: the choice is made here and the reading happens in the host half,
+		   because a page cannot open the filesystem by itself. */
+		function sourceName(active) {
+			if (!active) return t('src.bundled');
+			if (active.source !== 'folder') return t('src.bundled');
+			if (active.folder) {
+				var parts = String(active.folder).split(/[\\/]/).filter(function (s) { return s !== ''; });
+				return parts.length > 0 ? parts[parts.length - 1] : String(active.folder);
+			}
+			return t('src.folder');
+		}
+
+		function SourceBar(props) {
+			var active = props.active;
+			var busy = props.busy;
+			var error = props.error;
+			var isFolder = active && active.source === 'folder';
+			return h('div', { className: 'epc-src' + (isFolder ? ' on' : '') },
+				h('span', { className: 'epc-src-k' }, t('src.title')),
+				h('span', { className: 'epc-src-v' },
+					h('span', { className: 'epc-src-name' }, sourceName(active)),
+					isFolder && active.builtAt
+						? h('span', { className: 'epc-src-when' }, t('src.read', { date: shortDate(String(active.builtAt).slice(0, 10)) }))
+						: h('span', { className: 'epc-src-when' }, t('src.bundled.note'))),
+				error !== null && error !== void 0
+					? h('span', { className: 'epc-src-err', title: String(error) }, t('src.failed'))
+					: null,
+				busy
+					? h('span', { className: 'epc-src-busy' }, h('i', { className: 'epc-dot' }), t('src.reading'))
+					: null,
+				h('span', { className: 'grow' }),
+				busy ? null : h('button', {
+					className: 'epc-btn',
+					onClick: props.onPick,
+					title: t('src.pick.hint')
+				}, t('src.pick')),
+				!busy && isFolder ? h('button', {
+					className: 'epc-btn',
+					onClick: props.onReset,
+					title: t('src.reset.hint')
+				}, t('src.reset')) : null);
+		}
+
 		function Workbench(props) {
 			/* The scope is an empty placeholder until the data arrives: the contract
 			   ids come from the dataset, so there is no id to default to at compile
@@ -3224,6 +3344,13 @@ function contractList(data) {
 			var [mini, setMini] = useState(false);
 			var [palette, setPalette] = useState(false);
 			var [scope, setScope] = useState('');
+			/* What the host is serving and whether it is reading a folder right
+			   now. Both come from the host half, so the button state and the page
+			   cannot disagree about which project is on screen. */
+			var [source, setSource] = useState({ active: null, build: null });
+			var [reading, setReading] = useState(false);
+			var [sourceError, setSourceError] = useState(null);
+			var [readProgress, setReadProgress] = useState('');
 
 			function load() {
 				setState({ status: 'loading', data: null, error: null });
@@ -3236,6 +3363,18 @@ function contractList(data) {
 
 			useEffect(load, []);
 
+			/* The host answers /state with what it is serving. Asking once on mount
+			   keeps the strip honest after a reload, when the previously picked
+			   folder is still the one being served. */
+			function readState() {
+				return fetch(STATE_URL, { credentials: 'same-origin' })
+					.then(function (res) { return res.ok ? res.json() : null; })
+					.then(function (json) { if (json) setSource(json); return json; })
+					.catch(function () { return null; });
+			}
+
+			useEffect(function () { readState(); }, []);
+
 			/* The register arrives with the payload, so the selected contract is
 			   settled here rather than in the initial state. A scope that no longer
 			   exists after a rebuild falls back to the main contract instead of
@@ -3245,6 +3384,64 @@ function contractList(data) {
 				var next = resolveScope(state.data, scope);
 				if (next && next !== scope) setScope(next);
 			}, [state.status, state.data]);
+
+			/* Picking a folder is: choose it, tell the host, wait for the build, then
+			   drop the cached parse and reload. Reading a real project takes a
+			   minute or two, so the wait is a poll of /state rather than one long
+			   request that a proxy could time out. */
+			function pickFolder() {
+				var workspace = typeof props.ctx.get === 'function' ? props.ctx.get('uiWorkspace') : null;
+				if (!workspace || typeof workspace.pickDirectory !== 'function') {
+					setSourceError(t('src.no.picker'));
+					return;
+				}
+				setSourceError(null);
+				Promise.resolve(workspace.pickDirectory()).then(function (folder) {
+					if (!folder) return null;
+					setReading(true);
+					setReadProgress(t('src.reading'));
+					return postJson(FOLDER_URL, { folder: folder }).then(function () {
+						return waitForBuild(folder, 0);
+					});
+				}).catch(function (err) {
+					setReading(false);
+					setSourceError(String(err && err.message ? err.message : err));
+				});
+			}
+
+			function waitForBuild(folder, tries) {
+				return readState().then(function (json) {
+					var b = json && json.build ? json.build : null;
+					if (b && b.progress) {
+						var line = String(b.progress).split(/\r?\n/).filter(function (s) { return s.trim() !== ''; });
+						if (line.length > 0) setReadProgress(line[line.length - 1].trim().slice(0, 120));
+					}
+					if (b && b.status === 'running' && tries < 600) {
+						return new Promise(function (resolve) { setTimeout(resolve, 1000); })
+							.then(function () { return waitForBuild(folder, tries + 1); });
+					}
+					setReading(false);
+					if (b && b.status === 'error') {
+						setSourceError(b.error || t('src.failed'));
+						return null;
+					}
+					resetData();
+					load();
+					return null;
+				});
+			}
+
+			function resetSource() {
+				setReading(false);
+				setSourceError(null);
+				postJson(RESET_URL, {}).then(function () {
+					resetData();
+					load();
+					readState();
+				}).catch(function (err) {
+					setSourceError(String(err && err.message ? err.message : err));
+				});
+			}
 
 			useEffect(function () {
 				function onKey(e) {
@@ -3291,7 +3488,11 @@ function contractList(data) {
 			}
 
 			var body = null;
-			if (state.status === 'loading') body = h(Loading);
+			if (reading) {
+				body = h('div', { className: 'epc-wait' },
+					h('div', { className: 'epc-wait-k' }, t('src.reading')),
+					h('div', { className: 'epc-wait-l' }, readProgress || t('src.reading.hint')));
+			} else if (state.status === 'loading') body = h(Loading);
 			else if (state.status === 'error') {
 				body = h('div', { className: 'epc-err' },
 					t('app.error'), h('br'),
@@ -3380,6 +3581,14 @@ function contractList(data) {
 								h('span', { className: 'epc-navlabel' }, mini ? t('action.expand') : t('action.collapse'))))),
 
 					h('div', { className: 'epc-stage' },
+						h('div', { className: 'epc-sourcebar' },
+							h(SourceBar, {
+								active: source && source.active ? source.active : null,
+								busy: reading,
+								error: sourceError,
+								onPick: pickFolder,
+								onReset: resetSource
+							})),
 						h('div', { className: 'epc-scroll' }, body))),
 
 				h('div', { className: 'epc-status' },

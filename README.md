@@ -42,8 +42,41 @@ main-contract certificates. It exists so the plugin renders something meaningful
 first install; no real project data is included, and `tools/make_demo.py` regenerates it
 deterministically.
 
-Point it at a real corpus by writing a configuration file — see
-[docs/CONFIGURATION.md](docs/CONFIGURATION.md):
+## Reading a real project from the interface
+
+Once the plugin is installed you do not have to write a configuration file to see a real
+project. A strip sits above every page:
+
+```
+PROJECT  Demo dataset  shipped with the plugin                    [ Choose folder ]  [ Use demo data ]
+```
+
+`Choose folder` opens the host's native directory picker. Whatever folder you pick is read
+by `tools/discover_folder.py`, which works out the parties, contracts, letter series,
+minute books, payment registers, retention sheets, defect register, document folders and
+the currency list from the records themselves; the extracted dataset is then written to
+`$DSH_HOME/cache/epc-workbench/<hash>/data`, away from the project, and the page reloads
+onto it. **The project folder is only ever read.** The strip then names the folder and the
+time it was read, and lists anything discovery could not establish, so a blank field is
+never mistaken for a zero.
+
+A real project takes a minute or two: the build runs in the background and the page polls
+`/plugins/epc-workbench/state`, showing the extractor's last progress line while it works.
+Two clicks cannot run two builds — the second answers 409 and the page keeps waiting.
+
+The same thing from the command line, when you want the dataset somewhere specific:
+
+```bash
+python tools/discover_folder.py <project-folder> out/workbench.config.json out/data
+python tools/build_data.py out/workbench.config.json
+```
+
+`Use demo data` returns to the bundled dataset. The choice is remembered across restarts
+(`$DSH_HOME/cache/epc-workbench/state.json`); if the folder later disappears the page falls
+back to the demo dataset rather than failing.
+
+Writing a configuration by hand is still supported and is the way to override a discovery
+that guessed wrong — see [docs/CONFIGURATION.md](docs/CONFIGURATION.md):
 
 ```bash
 cp workbench.config.example.json workbench.config.json
@@ -57,9 +90,9 @@ with correspondence and grow into payments later.
 
 ## Installing as a Harness plugin
 
-The package root is the plugin: `index.js` is the host half (it registers two read-only
-JSON routes), `client.js` is the built client half, `cordis.patch.yml` mounts it into the
-Web UI.
+The package root is the plugin: `index.js` is the host half (it serves the dataset and runs
+the folder reader), `client.js` is the built client half, `cordis.patch.yml` mounts it into
+the Web UI.
 
 From npm:
 
@@ -75,14 +108,19 @@ dsh plugin add ./dsh-epc-workbench     # or: plugin_manager install_bundle
 ```
 
 The workbench then appears as a page in the Harness Web UI and renders the demo dataset
-until `data/` is rebuilt from a real corpus.
+until you pick a project folder with `Choose folder` (or rebuild `data/` from a corpus).
 
 The npm package carries the runtime surface plus what is needed to point it at your own
 records: `index.js`, `client.js`, `icon.svg`, `cordis.patch.yml`, the two locales, the
-demo dataset, `workbench.config.example.json`, `docs/CONFIGURATION.md` and the three
-extractor scripts (`tools/build_data.py`, `tools/epc_config.py`, `tools/make_demo.py`).
-`src/`, `preview/` and the client build/smoke i18n scripts are development aids that only
-the git checkout has.
+demo dataset, `workbench.config.example.json`, `docs/CONFIGURATION.md` and the extractor
+scripts (`tools/build_data.py`, `tools/epc_config.py`, `tools/discover_folder.py`,
+`tools/make_demo.py`). `src/`, `preview/` and the client build/smoke i18n scripts are
+development aids that only the git checkout has.
+
+The folder reader needs a Python with `openpyxl`. It looks for `EPC_WORKBENCH_PYTHON`
+first, then the runtime the harness ships
+(`$DSH_HOME/dsh-runtimes/dsh-primary-runtime/dependencies/python/python.exe`), then
+`python3` / `python` on `PATH`; set `EPC_WORKBENCH_PYTHON` to override.
 
 ## Rebuilding
 
@@ -149,7 +187,7 @@ suffixed fields — no template change, and no figure silently dropped.
 ## Layout
 
 ```
-index.js                  host half — two read-only JSON routes, mtime-keyed cache
+index.js                  host half — dataset routes, folder reading, build state
 client.js                 client half — built artifact
 src/client/*.js           client sources, concatenated in filename order
   00_head.js              module wrapper
@@ -162,7 +200,8 @@ src/client/*.js           client sources, concatenated in filename order
 data/workbench.json       aggregated dataset
 data/index.json           flat search index
 tools/build_data.py       corpus -> data files, config-driven
-tools/epc_config.py       configuration loading and validation
+tools/epc_config.py       configuration loading, validation and project discovery
+tools/discover_folder.py  folder -> configuration, the entry point behind Choose folder
 tools/make_demo.py        synthetic dataset generator
 tools/build_client.mjs    concatenation + wrap
 tools/smoke.mjs           headless render test
@@ -178,6 +217,11 @@ The plugin ships no project data: the committed dataset is generated by
 corpus contains contract sums, party names and correspondence subjects — keep
 `workbench.config.json` and any real `data/` out of version control. `.gitignore`
 already excludes the former, and `preview/` output.
+
+A folder read through the interface never writes into that folder: the discovered
+configuration and the extracted dataset both land in
+`$DSH_HOME/cache/epc-workbench/<hash>/`. Nothing about the picked folder is sent
+anywhere else.
 
 ## Publishing a release
 
