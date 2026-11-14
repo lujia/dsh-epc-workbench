@@ -412,6 +412,14 @@ async function handleReset(req, res) {
 	active.folder = null;
 	active.builtAt = null;
 	active.notes = [];
+	// The last build's outcome belongs to the folder that was just dropped; keeping
+	// it would leave the page reporting a finished read of a project it no longer shows.
+	build.status = 'idle';
+	build.folder = null;
+	build.startedAt = null;
+	build.finishedAt = null;
+	build.error = null;
+	build.log = '';
 	cache.clear();
 	await saveState();
 	json(res, 200, { status: 'ok', source: 'bundled' });
