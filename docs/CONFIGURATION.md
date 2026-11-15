@@ -150,8 +150,11 @@ python tools/discover_folder.py <project-folder> out/workbench.config.json out/d
 python tools/build_data.py out/workbench.config.json
 ```
 
-`discover_folder.py` prints one `note:` line per fact it could not establish and a final
-`NOTES <json>` line that the interface reads back.
+`discover_folder.py` prints one `found:` line per record it recognised and one `gap:` line per
+fact it could not establish, then two JSON lines the interface reads back: `NOTES` (the gaps)
+and `FOUND` (what was read). The config it writes carries only the gaps — the extractor
+replays its notes as warnings, and a success listed there would be reported twice and under
+the wrong heading.
 
 The host half caches the parsed dataset by file size and mtime, so a rebuild is picked
 up on the next request. Changes to `index.js` itself need the bundle toggled off and on
@@ -160,6 +163,26 @@ in the plugin manager.
 The folder reader looks for a Python with `openpyxl` in this order:
 `EPC_WORKBENCH_PYTHON`, `$DSH_HOME/dsh-runtimes/dsh-primary-runtime/dependencies/python/python.exe`,
 that same runtime's `bin/python3`, then `python3` / `python` on `PATH`.
+
+## A folder that is laid out differently
+
+Every configured path is a preference, not a requirement. When a folder's records are named
+or arranged differently the reader falls back, and says so:
+
+| configured | fallback |
+| --- | --- |
+| `sources.paymentsRegister` | the workbook under the root (several levels down) that holds both an interim-payment sheet and a monthly-record sheet |
+| `sources.defects` | the workbook whose sheet name reads like a defect register |
+| sheet names in `sources.sheets` | a sheet whose name matches `interim payment to` / `subcontractor` / `interim payment from` / `employer` / `monthly` / `record` |
+| `contracts[].dir` + `file` (retention) | the first workbook under that folder with a retention sheet, or the first sheet whose first column opens with an IPC number |
+| `sources.latestCertificate` | the newest workbook whose filename carries an `IPC<n>` ordinal, preferring a sheet named `IPC-… (<n>)` and an item sheet mentioning a BOQ amount |
+| `sources.mainContractDir` | a folder named like a main contract, employer, owner or client |
+| `letters[].dir`, `meetings[].dir` | a folder found by walking the tree, whose first markdown file reads like a letter or a minute |
+
+A sheet name is matched after trimming spaces and case, so `GRAND SUM ` and `grand sum` are
+the same sheet. A workbook that openpyxl cannot open is reported and skipped; it never stops
+the build. Everything that was not read is listed for the reader, so an empty card is never
+mistaken for a zero.
 
 ## Reading a folder from the interface
 

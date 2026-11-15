@@ -158,6 +158,8 @@
 			var active = props.active;
 			var busy = props.busy;
 			var error = props.error;
+			var notes = props.notes || [];
+			var found = props.found || [];
 			var isFolder = active && active.source === 'folder';
 			return h('div', { className: 'epc-src' + (isFolder ? ' on' : '') },
 				h('span', { className: 'epc-src-k' }, t('src.title')),
@@ -172,6 +174,24 @@
 				busy
 					? h('span', { className: 'epc-src-busy' }, h('i', { className: 'epc-dot' }), t('src.reading'))
 					: null,
+				notes.length > 0
+					/* A folder whose records differ from the ones this workbench was
+					   first pointed at still renders; the count says how much of the
+					   page could not be filled, and the list says which parts. */
+					? h('button', {
+						className: 'epc-src-notes' + (props.notesOpen ? ' on' : ''),
+						onClick: props.onToggleNotes,
+						title: t('src.notes.hint')
+					}, t('src.notes', { n: notes.length }))
+					: (isFolder && found.length > 0
+						/* Nothing missing is worth saying too: otherwise a folder read
+						   completely looks the same as one nobody has opened. */
+						? h('button', {
+							className: 'epc-src-notes ok' + (props.notesOpen ? ' on' : ''),
+							onClick: props.onToggleNotes,
+							title: t('src.found.hint')
+						}, t('src.found', { n: found.length }))
+						: null),
 				h('span', { className: 'grow' }),
 				busy ? null : h('button', {
 					className: 'epc-btn',
@@ -183,6 +203,32 @@
 					onClick: props.onReset,
 					title: t('src.reset.hint')
 				}, t('src.reset')) : null);
+		}
+
+		function NoteList(props) {
+			var notes = props.notes || [];
+			var found = props.found || [];
+			if (notes.length === 0 && found.length === 0) return null;
+			return h('div', { className: 'epc-notes' },
+				notes.length > 0
+					? h('div', { className: 'epc-notes-k' }, t('src.notes.title', { n: notes.length }))
+					: null,
+				notes.length > 0
+					? h('ul', { className: 'epc-notes-l' }, notes.map(function (n, i) {
+						return h('li', { key: 'n' + i }, n);
+					}))
+					: null,
+				found.length > 0
+					/* What the reader did recognise. Worth printing: a folder read
+					   completely shows the same list, so 'read 4 of 4' is a statement
+					   about the project, not a log line. */
+					? h('div', { className: 'epc-notes-k' }, t('src.found.title', { n: found.length }))
+					: null,
+				found.length > 0
+					? h('ul', { className: 'epc-notes-l epc-notes-ok' }, found.map(function (n, i) {
+						return h('li', { key: 'f' + i }, n);
+					}))
+					: null);
 		}
 
 		function Workbench(props) {
@@ -201,6 +247,7 @@
 			var [reading, setReading] = useState(false);
 			var [sourceError, setSourceError] = useState(null);
 			var [readProgress, setReadProgress] = useState('');
+			var [notesOpen, setNotesOpen] = useState(false);
 
 			function load() {
 				setState({ status: 'loading', data: null, error: null });
@@ -307,6 +354,35 @@
 			}, [palette]);
 
 			var data = state.data;
+			/* Everything the reader could not open, from both halves: the host keeps
+			   what discovery could not recognise, the payload keeps what the
+			   extractor could not read. A page that shows four empty cards and no
+			   explanation reads like a broken plugin. */
+			var readNotes = useMemo(function () {
+				var out = [];
+				var seen = {};
+				var push = function (list) {
+					(list || []).forEach(function (n) {
+						var text = String(n || '').trim();
+						if (text && !seen[text]) { seen[text] = true; out.push(text); }
+					});
+				};
+				if (source && source.active) push(source.active.notes);
+				if (data) push(data.warnings);
+				return out;
+			}, [source, data]);
+			/* What discovery recognised. Kept apart from readNotes because a folder
+			   read completely must say so: four 'found' lines are four successes, and
+			   showing them under a 'not found' heading would report the opposite. */
+			var readFound = useMemo(function () {
+				var out = [];
+				var seen = {};
+				((source && source.active && source.active.found) || []).forEach(function (n) {
+					var text = String(n || '').trim();
+					if (text && !seen[text]) { seen[text] = true; out.push(text); }
+				});
+				return out;
+			}, [source]);
 			var counts = data ? {
 				correspondence: data.letters.total,
 				meetings: data.meetings.total,
@@ -436,9 +512,14 @@
 								active: source && source.active ? source.active : null,
 								busy: reading,
 								error: sourceError,
+								notes: readNotes,
+								found: readFound,
+								notesOpen: notesOpen,
+								onToggleNotes: function () { setNotesOpen(function (v) { return !v; }); },
 								onPick: pickFolder,
 								onReset: resetSource
-							})),
+							}),
+							notesOpen ? h(NoteList, { notes: readNotes, found: readFound }) : null),
 						h('div', { className: 'epc-scroll' }, body))),
 
 				h('div', { className: 'epc-status' },

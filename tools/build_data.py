@@ -36,6 +36,20 @@ SCAN_RE = None
 PROJECT = {}
 
 
+# Everything the extractor could not read, in the order it met it. A corpus that
+# is laid out differently from the one the configuration was written for is not an
+# error: the workbench shows what the folder does hold and says which part it could
+# not find, so a reader can tell a missing register from an empty one.
+WARNINGS = []
+
+
+def warn(message):
+    text = str(message).strip()
+    if text and text not in WARNINGS:
+        WARNINGS.append(text)
+    return text
+
+
 def use_config(cfg):
     """Point the module at a loaded configuration."""
     global ROOT, OUT, CFG, SERIES_LABEL, SERIES_CONTRACT, MEETING_CONTRACT
@@ -49,9 +63,14 @@ def use_config(cfg):
     PKG_TAGS = [(c.get("tag") or c["id"], c["id"]) for c in cfg["subs"]]
     MAIN_DIR = cfg["sources"].get("mainContractDir") or ""
     MAIN_CONTRACT_USD = tuple(cfg["sources"].get("mainContractSums") or ())
-    pattern = cfg["sources"].get("scanPattern")
-    SCAN_RE = re.compile(pattern) if pattern else None
+    PATTERN = cfg["sources"].get("scanPattern")
+    SCAN_RE = re.compile(PATTERN) if PATTERN else None
     PROJECT = epc_config.project_public(cfg)
+    # The configuration knows a few things the records did not settle — a contract
+    # whose counterparty was not in the parties table, a currency entry with no code.
+    # They belong with the reader's warnings, not in a log the interface never sees.
+    for note in cfg.get("notes") or []:
+        warn(note)
     return cfg
 
 MONTHS = {m: i + 1 for i, m in enumerate(
@@ -76,6 +95,146 @@ DATE_MDY = re.compile(
 YEAR_MIN, YEAR_MAX = 2019, 2027
 
 HEADER_KEYS = {"DocType", "Direction", "LetterNo", "Subject", "SourceFile", "Role", "Seq"}
+
+
+# --------------------------------------------------------------------------- resolution
+# A workbench pointed at a folder it was not written for meets the same records
+# under different names: 'DL 2026.xlsx' instead of 'DL.xlsx', a register whose
+# sheet is called 'IPCs' instead of 'Interim Payment to ADVE'. Nothing here
+# requires the exact file: the configured name is tried first, then names that
+# match what the file is, and a folder that simply does not hold the record leaves
+# that section empty with a warning rather than failing the whole build.
+def _abs(rel):
+    """Absolute path for a configured relative one."""
+    if not rel:
+        return None
+    return rel if os.path.isabs(rel) else os.path.join(ROOT, rel)
+
+
+def _walk_files(base, depth=2):
+    """Every file under a directory, at most ``depth`` levels deep."""
+    out = []
+    if not base or not os.path.isdir(base):
+        return out
+    try:
+        for name in sorted(os.listdir(base)):
+            p = os.path.join(base, name)
+            if os.path.isfile(p):
+                out.append(p)
+            elif depth > 1 and os.path.isdir(p):
+                out.extend(_walk_files(p, depth - 1))
+    except OSError:
+        pass
+    return out
+
+
+def _match_file(candidates, patterns):
+    """The largest file whose name matches one of the patterns, in the order given.
+
+    Largest, because a project that keeps 'DL 2026.xlsx' beside 'DL 2025.xlsx'
+    wants the fuller register, and a lock copy '~$DL.xlsx' is never a candidate.
+    """
+    for pattern in patterns:
+        rx = re.compile(pattern, re.I)
+        hits = []
+        for p in candidates:
+            name = os.path.basename(p)
+            if name.startswith("~$") or name.lower().endswith(".bak"):
+                continue
+            if rx.search(name):
+                try:
+                    size = os.path.getsize(p)
+                except OSError:
+                    size = 0
+                hits.append((size, p))
+        if hits:
+            hits.sort(key=lambda e: (-e[0], e[1]))
+            return hits[0][1]
+    return None
+
+
+def resolve_file(rel, patterns=(), label="", roots=None):
+    """Path of a workbook: the configured one, else the best name match nearby."""
+    direct = _abs(rel)
+    if direct and os.path.isfile(direct):
+        return direct
+    folders = []
+    if direct:
+        folders.append(os.path.dirname(direct))
+    for r in (roots if roots is not None else [ROOT]):
+        folders.append(r)
+    seen = set()
+    for folder in folders:
+        if not folder or folder in seen:
+            continue
+        seen.add(folder)
+        hit = _match_file(_walk_files(folder, 2), patterns)
+        if hit is not None:
+            return hit
+    if rel or patterns:
+        warn("%s: nothing matching %s was found, so that section is empty"
+             % (label or "a record", rel or " / ".join(patterns)))
+    return None
+
+
+def resolve_dir(rel, patterns=(), label=""):
+    """Directory the config names, or the first sibling whose name matches."""
+    direct = _abs(rel)
+    if direct and os.path.isdir(direct):
+        return direct
+    roots = []
+    if direct:
+        roots.append(os.path.dirname(direct))
+    roots.append(ROOT)
+    for root in roots:
+        if not root or not os.path.isdir(root):
+            continue
+        for pattern in patterns:
+            rx = re.compile(pattern, re.I)
+            try:
+                names = sorted(os.listdir(root))
+            except OSError:
+                continue
+            for name in names:
+                p = os.path.join(root, name)
+                if os.path.isdir(p) and rx.search(name):
+                    return p
+    if rel:
+        warn("%s: the folder %s is not there, so that section is empty" % (label or "a record", rel))
+    return None
+
+
+def open_workbook(path, label=""):
+    """Open a workbook, warning instead of raising when it cannot be read."""
+    if not path:
+        return None
+    try:
+        from openpyxl import load_workbook
+        return load_workbook(path, read_only=True, data_only=True)
+    except Exception as error:
+        warn("%s: %s could not be read (%s), so that section is empty"
+             % (label or "workbook", os.path.basename(path), str(error)[:120]))
+        return None
+
+
+def sheet_of(wb, wanted, patterns=()):
+    """The sheet the config names, else the first whose name matches a pattern."""
+    if wb is None:
+        return None
+    names = list(wb.sheetnames)
+    if wanted:
+        if wanted in names:
+            return wb[wanted]
+        # sheet names in a workbook are often padded ('GRAND SUM ' vs 'GRAND SUM')
+        for name in names:
+            if name.strip().lower() == wanted.strip().lower():
+                return wb[name]
+    for pattern in patterns:
+        rx = re.compile(pattern, re.I)
+        for name in names:
+            if rx.search(name):
+                return wb[name]
+    return None
 
 
 def clean(v):
@@ -176,10 +335,18 @@ def letter_header(path):
 
 
 def scan_letters(folder, series):
-    base = os.path.join(ROOT, folder)
+    base = os.path.join(ROOT, folder) if not os.path.isabs(folder) else folder
     rows = []
     if not os.path.isdir(base):
-        return rows
+        # A corpus on another machine names its letter folders differently, and a
+        # folder that is simply absent is not a failed read: the series is empty.
+        alt = resolve_dir(folder, (r"letter", r"^md_", r"correspond"), "%s letters" % series)
+        if alt is None:
+            warn("letters (%s): the folder %s is not there, so that series is empty"
+                 % (series, folder))
+            return rows
+        base = alt
+        folder = os.path.relpath(alt, ROOT) if alt.startswith(ROOT) else alt
     for name in sorted(os.listdir(base)):
         if not name.lower().endswith(".md"):
             continue
@@ -262,10 +429,16 @@ def aggregate_letters(letters):
 
 # --------------------------------------------------------------------------- meetings
 def scan_meetings(folder, series):
-    base = os.path.join(ROOT, folder)
+    base = os.path.join(ROOT, folder) if not os.path.isabs(folder) else folder
     out = []
     if not os.path.isdir(base):
-        return out
+        alt = resolve_dir(folder, (r"meeting|minutes?|mom", r"^md_"), "%s minutes" % series)
+        if alt is None:
+            warn("minutes (%s): the folder %s is not there, so that minute book is empty"
+                 % (series, folder))
+            return out
+        base = alt
+        folder = os.path.relpath(alt, ROOT) if alt.startswith(ROOT) else alt
     for name in sorted(os.listdir(base)):
         low = name.lower()
         if not low.endswith(".md"):
@@ -337,15 +510,27 @@ def aggregate_meetings(rows):
 
 # --------------------------------------------------------------------------- defects
 def scan_defects():
-    from openpyxl import load_workbook
+    """The defect register, found by what the workbook holds rather than by its name."""
     rel = (CFG["sources"].get("defects") or "") if CFG else ""
     if not rel:
         return []
-    p = rel if os.path.isabs(rel) else os.path.join(ROOT, rel)
-    if not os.path.isfile(p):
+    # A defect register is a workbook, and the one a project keeps is the one whose
+    # header row names a discipline and a target date. Matching on the file name
+    # alone would break the moment the same records are exported as DL-2026.xlsx.
+    p = resolve_file(rel, (r"^DL\d*", r"defect", r"^DL"), "defect register")
+    if p is None:
         return []
-    wb = load_workbook(p, read_only=True, data_only=True)
-    ws = wb[wb.sheetnames[0]]
+    wb = open_workbook(p, "defect register")
+    if wb is None:
+        return []
+    ws = sheet_of(wb, "", (r"defect", r"^DL"))
+    if ws is None and wb.sheetnames:
+        ws = wb[wb.sheetnames[0]]
+    if ws is None:
+        warn("defect register: %s holds no sheet, so the defect section is empty"
+             % os.path.basename(p))
+        wb.close()
+        return []
     rows = []
     for i, r in enumerate(ws.iter_rows(max_row=1600, values_only=True)):
         if i < 2:
@@ -370,6 +555,9 @@ def scan_defects():
             "prio": str(g(16) or "").strip(),
         })
     wb.close()
+    if not rows:
+        warn("defect register: %s opened but no row survived the header, so the "
+             "defect section is empty" % os.path.basename(p))
     return rows
 
 
@@ -404,25 +592,63 @@ def aggregate_defects(rows):
 
 # --------------------------------------------------------------------------- payments
 def _register_path():
-    """The master payment register workbook, if the project has one."""
+    """The master payment register workbook, if the project has one.
+
+    The configured name is used when it is there; otherwise the folder is searched
+    for a workbook that holds both an interim-payment sheet and a monthly record,
+    which is what makes a register a register rather than any other workbook.
+    """
     reg = CFG["sources"].get("paymentsRegister") or ""
-    if not reg:
+    direct = _abs(reg)
+    if direct and os.path.isfile(direct):
+        return direct
+    budget = 24
+    for p in _walk_files(ROOT, 3):
+        if not p.lower().endswith((".xlsx", ".xlsm")):
+            continue
+        if os.path.basename(p).startswith("~$"):
+            continue
+        budget -= 1
+        if budget < 0:
+            break
+        wb = _probe_workbook(p)
+        if wb is None:
+            continue
+        names = [n.strip().lower() for n in wb.sheetnames]
+        if any("interim payment" in n for n in names) and any("monthly" in n for n in names):
+            warn("payment register: reading %s instead of the configured %s"
+                 % (os.path.relpath(p, ROOT), reg or "(none)"))
+            return p
+    if reg:
+        warn("payment register: %s was not found and no workbook with both an interim "
+             "payment sheet and a monthly record was found, so the payment section is empty" % reg)
+    return None
+
+
+def _probe_workbook(path):
+    """Open a workbook only to look at its sheet names, without keeping it open."""
+    try:
+        from openpyxl import load_workbook
+        wb = load_workbook(path, read_only=True, data_only=True)
+    except Exception:
         return None
-    p = reg if os.path.isabs(reg) else os.path.join(ROOT, reg)
-    return p if os.path.isfile(p) else None
+    return wb
 
 
 def load_monthly():
-    from openpyxl import load_workbook
     p = _register_path()
     if p is None:
         return []
-    sheet = CFG["sources"]["sheets"].get("monthly") or ""
-    wb = load_workbook(p, read_only=True, data_only=True)
-    if sheet not in wb.sheetnames:
+    wb = open_workbook(p, "monthly payment record")
+    if wb is None:
+        return []
+    sheet = (CFG["sources"].get("sheets") or {}).get("monthly") or ""
+    ws = sheet_of(wb, sheet, (r"monthly", r"record"))
+    if ws is None:
+        warn("monthly payment record: no sheet named %r or matching 'monthly', "
+             "so the monthly series is empty" % (sheet or "(none)"))
         wb.close()
         return []
-    ws = wb[sheet]
     rows = []
     for r in ws.iter_rows(max_row=90, values_only=True):
         if not r or r[0] is None:
@@ -437,15 +663,20 @@ def load_monthly():
 
 def load_ipcs():
     """Per-IPC certified amounts and payment state from the master payment register."""
-    from openpyxl import load_workbook
     p = _register_path()
     if p is None:
         return [], []
-    sheets = CFG["sources"]["sheets"]
-    wb = load_workbook(p, read_only=True, data_only=True)
+    wb = open_workbook(p, "interim payment register")
+    if wb is None:
+        return [], []
+    sheets = CFG["sources"].get("sheets") or {}
     ipcs = []
-    ws = wb[sheets["ipc"]] if sheets.get("ipc") in wb.sheetnames else None
-    if ws is not None:
+    ws = sheet_of(wb, sheets.get("ipc") or "", (r"interim payment to", r"to (the )?sub",
+                                                r"subcontractor", r"ipc"))
+    if ws is None:
+        warn("subcontract payment sheet: no sheet named %r or matching 'interim payment to', "
+             "so the subcontract certificate list is empty" % (sheets.get("ipc") or "(none)"))
+    else:
         for r in ws.iter_rows(max_row=1200, values_only=True):
             if not r or r[2] is None:
                 continue
@@ -465,13 +696,18 @@ def load_ipcs():
                 "fxLkr": num(r[9]),
                 "fxRmb": num(r[10]),
                 "rmb": num(r[11]),
-                "note": str(r[12] or "").strip()[:100],
+                "note": str(r[12] or "").strip()[:100] if len(r) > 12 else "",
             })
     employer = []
-    ws = wb[sheets["employer"]] if sheets.get("employer") in wb.sheetnames else None
-    if ws is not None:
+    ws = sheet_of(wb, sheets.get("employer") or "", (r"interim payment from", r"from (the )?employer",
+                                                     r"employer", r"invoice"))
+    if ws is None:
+        if sheets.get("employer"):
+            warn("employer payment sheet: no sheet named %r or matching 'interim payment from', "
+                 "so the employer invoice list is empty" % sheets["employer"])
+    else:
         for r in ws.iter_rows(max_row=1200, values_only=True):
-            if not r or r[3] is None:
+            if not r or len(r) < 4 or r[3] is None:
                 continue
             amt = num(r[3])
             if amt is None:
@@ -480,12 +716,12 @@ def load_ipcs():
                 "date": iso_date(r[1]),
                 "no": str(r[2] or "").strip()[:40],
                 "amt": amt,
-                "tax": num(r[6]),
-                "total": num(r[7]),
-                "fxRmb": num(r[8]),
-                "note": str(r[10] or "").strip()[:100],
-                "recv": num(r[11]),
-                "recvDate": iso_date(r[12]),
+                "tax": num(r[6]) if len(r) > 6 else None,
+                "total": num(r[7]) if len(r) > 7 else None,
+                "fxRmb": num(r[8]) if len(r) > 8 else None,
+                "note": str(r[10] or "").strip()[:100] if len(r) > 10 else "",
+                "recv": num(r[11]) if len(r) > 11 else None,
+                "recvDate": iso_date(r[12]) if len(r) > 12 else None,
             })
     wb.close()
     return ipcs, employer
@@ -493,47 +729,103 @@ def load_ipcs():
 
 def load_retention(cid):
     """Retention and advance rows for one subcontract, from the configuration."""
-    from openpyxl import load_workbook
     c = epc_config.contract(CFG, cid) if CFG else None
-    if not c or not c.get("file"):
+    if not c:
         return []
-    rel = os.path.join(c["dir"], c["file"]) if c.get("dir") else c["file"]
-    p = rel if os.path.isabs(rel) else os.path.join(ROOT, rel)
-    if not os.path.isfile(p):
+    rel = os.path.join(c["dir"], c["file"]) if c.get("dir") and c.get("file") else (c.get("file") or "")
+    # The retention sheet is recognised by what it holds, not by its file name: a
+    # project calls it 'Retention and Advance Payment' in one package and
+    # 'IPC_Retention' in the next, and some workbooks keep the word in the sheet
+    # name only.
+    p = None
+    direct = _abs(rel)
+    if direct and os.path.isfile(direct):
+        p = direct
+    else:
+        cdir = resolve_dir_note(c.get("dir"), r"ipc|retention|advance|payment", "retention for %s" % cid)
+        if cdir:
+            p = _match_file(_walk_files(cdir, 1), (r"retention|advance", r"ipc"))
+    if p is None:
+        warn("retention for %s: no workbook with a retention sheet was found, so the "
+             "retention tab is empty" % cid)
+        return []
+    wb = open_workbook(p, "retention for %s" % cid)
+    if wb is None:
+        return []
+    ws = sheet_of(wb, "", (r"retention|advance|保留金",))
+    if ws is None:
+        # nothing says 'retention' in the sheet names: the first sheet that opens
+        # with an IPC number in its first column is the one
+        for name in wb.sheetnames:
+            cand = wb[name]
+            try:
+                head = [r for r in cand.iter_rows(max_row=4, max_col=2, values_only=True)]
+            except Exception:
+                continue
+            if any(r and isinstance(r[0], str) and r[0].strip().upper().startswith("IPC")
+                   for r in head):
+                ws = cand
+                break
+    if ws is None:
+        warn("retention for %s: %s holds no sheet that opens with an IPC number, so the "
+             "retention tab is empty" % (cid, os.path.basename(p)))
+        wb.close()
         return []
     has_period = c.get("has_period", True)
-    wb = load_workbook(p, read_only=True, data_only=True)
-    ws = wb[wb.sheetnames[0]]
     out = []
     for r in ws.iter_rows(max_row=80, values_only=True):
         if not r or not isinstance(r[0], str) or not r[0].upper().startswith("IPC"):
             continue
         if has_period:
-            out.append({"ipc": r[0].strip(), "period": iso_date(r[1]) if r[1] else None,
-                        "retThis": num(r[2]), "retCum": num(r[3]),
-                        "advThis": num(r[4]), "advCum": num(r[5])})
+            out.append({"ipc": r[0].strip(), "period": iso_date(r[1]) if len(r) > 1 and r[1] else None,
+                        "retThis": num(r[2]) if len(r) > 2 else None,
+                        "retCum": num(r[3]) if len(r) > 3 else None,
+                        "advThis": num(r[4]) if len(r) > 4 else None,
+                        "advCum": num(r[5]) if len(r) > 5 else None})
         else:
             out.append({"ipc": r[0].strip(), "period": None,
-                        "retThis": num(r[1]), "retCum": num(r[2]),
-                        "advThis": num(r[3]), "advCum": num(r[4])})
+                        "retThis": num(r[1]) if len(r) > 1 else None,
+                        "retCum": num(r[2]) if len(r) > 2 else None,
+                        "advThis": num(r[3]) if len(r) > 3 else None,
+                        "advCum": num(r[4]) if len(r) > 4 else None})
     wb.close()
     return out
 
 
+def resolve_dir_note(rel, pattern, label):
+    """A directory by name pattern under the root, warning when it is not there."""
+    return resolve_dir(rel, (pattern,), label)
+
+
 def latest_certificate():
-    """Bill-item breakdown from the latest subcontract certificate, if configured."""
-    from openpyxl import load_workbook
+    """Bill-item breakdown from the latest subcontract certificate, if configured.
+
+    The configured workbook is used when it exists; otherwise the newest workbook
+    in a package folder that carries both a certificate summary and an item sheet is
+    taken, because the point of the card is to show the newest certificate the
+    project holds, not the one this config was written against.
+    """
     src = (CFG["sources"].get("latestCertificate") or {}) if CFG else {}
-    rel = os.path.join(src.get("dir") or "", src.get("file") or "")
-    p = rel if os.path.isabs(rel) else os.path.join(ROOT, rel)
+    rel = os.path.join(src.get("dir") or "", src.get("file") or "") if src.get("file") else ""
     out = {"no": None, "period": None, "date": None, "items": [], "summary": {}}
-    if not src.get("file") or not os.path.isfile(p):
+    p = _abs(rel) if rel else None
+    if p is None or not os.path.isfile(p):
+        p = _newest_certificate_file(src.get("dir"))
+    if p is None:
+        warn("latest certificate: no workbook holding a certificate summary and an item "
+             "sheet was found, so the item breakdown is empty")
         return out
-    wb = load_workbook(p, read_only=True, data_only=True)
+    wb = open_workbook(p, "latest certificate")
+    if wb is None:
+        return out
     cert_sheet = src.get("sheet") or ""
     item_sheet = src.get("itemsSheet") or ""
-    if cert_sheet and cert_sheet in wb.sheetnames:
-        ws = wb[cert_sheet]
+    ws = sheet_of(wb, cert_sheet, (r"^\s*IPC[\s\-_]?\d+\s*\(\s*\d+\s*\)\s*$", r"^\s*IPC[\s\-_]?\d+\s*$",
+                                   r"certificate"))
+    if ws is None:
+        warn("latest certificate: %s has no sheet that reads like a certificate summary, "
+             "so its totals are empty" % os.path.basename(p))
+    else:
         for r in ws.iter_rows(max_row=40, values_only=True):
             cells = list(r)
             rowtxt = " ".join(str(c) for c in cells if c is not None)
@@ -576,9 +868,25 @@ def latest_certificate():
                 out["summary"]["netCertified"] = val
             elif "net payable" in low:
                 out["summary"]["netPayable"] = val
-    if item_sheet and item_sheet in wb.sheetnames:
-        ws = wb[item_sheet]
-        for r in ws.iter_rows(max_row=100, values_only=True):
+    items = sheet_of(wb, item_sheet, (r"^\s*SUM", r"grand\s*sum", r"acc"))
+    if items is None:
+        # A workbook whose item sheet is called something else still has it: the
+        # sheet whose header row names BOQ and cumulative is the breakdown.
+        for name in wb.sheetnames:
+            cand = wb[name]
+            try:
+                head = " ".join(str(c) for r in cand.iter_rows(max_row=20, values_only=True)
+                                for c in (r or []) if isinstance(c, str)).lower()
+            except Exception:
+                continue
+            if "boq amount" in head and "cumulative" in head:
+                items = cand
+                break
+    if items is None:
+        warn("latest certificate: no item sheet (BOQ / cumulative) was found in %s, "
+             "so the breakdown is empty" % os.path.basename(p))
+    else:
+        for r in items.iter_rows(max_row=100, values_only=True):
             cells = list(r)
             if len(cells) < 6:
                 continue
@@ -594,6 +902,33 @@ def latest_certificate():
     wb.close()
     out["items"] = out["items"][:40]
     return out
+
+
+def _newest_certificate_file(rel_dir):
+    """Newest workbook that carries both a certificate summary and an item sheet."""
+    base = _abs(rel_dir) if rel_dir else ROOT
+    if not base or not os.path.isdir(base):
+        base = ROOT
+    hits = []
+    for p in _walk_files(base, 2):
+        if not p.lower().endswith((".xlsx", ".xlsm")) or os.path.basename(p).startswith("~$"):
+            continue
+        no = None
+        m = re.search(r"IPC[\s\-_]*0*(\d{1,3})(?![\d])", os.path.basename(p), re.I)
+        if m:
+            no = int(m.group(1))
+        hits.append((no or 0, p))
+    hits.sort(key=lambda e: (-e[0], e[1]))
+    for _no, p in hits[:12]:
+        wb = _probe_workbook(p)
+        if wb is None:
+            continue
+        names = [n.strip() for n in wb.sheetnames]
+        has_sum = any(re.match(r"^\s*IPC[\s\-_]?\d+", n, re.I) for n in names)
+        wb.close()
+        if has_sum:
+            return p
+    return None
 
 
 def aggregate_payments(ipcs, employer, monthly):
@@ -903,11 +1238,15 @@ def scan_certificate_pdfs(folder):
 def load_main_ipas():
     """Per-IPA main-contract certificate series plus the price-adjustment ledger."""
     from openpyxl import load_workbook
-    d = os.path.join(ROOT, MAIN_DIR)
-    if not os.path.isdir(d):
+    d = resolve_dir(MAIN_DIR, (r"main.?contract", r"employer", r"owner", r"client", r"ipc"),
+                    "main-contract certificates") if MAIN_DIR else None
+    if d is None:
+        # No main-contract folder: the workbench has a subcontract side only, which
+        # is a project shape rather than a fault, so it stays silent.
         return None
     rows, pdf_only, by_no = [], [], {}
     ledger, summary_latest = [], None
+    unreadable = 0
     for name in sorted(os.listdir(d)):
         no = _main_ipa_no(name)
         if no is None:
@@ -927,10 +1266,12 @@ def load_main_ipas():
                 app = wb[sheet]
                 break
         if app is None:
+            unreadable += 1
             wb.close()
             continue
         _, cells = _main_totals_row(app)
         if cells is None:
+            unreadable += 1
             wb.close()
             continue
         row = dict(_app_money(cells), ipa=no, period=_main_period(app, name), file=name)
@@ -967,6 +1308,12 @@ def load_main_ipas():
 
     have = set(by_no) | set(pdf_only)
     missing = [i for i in range(1, (max(have) if have else 0) + 1) if i not in have]
+    if unreadable:
+        warn("main-contract certificates: %d workbook(s) held no interim-payment application "
+             "row, so they are not in the series" % unreadable)
+    if not rows:
+        warn("main-contract certificates: %s holds no workloadable certificate, so the "
+             "main-contract section is empty" % os.path.basename(d))
 
     by_period = {}
     for r in rows:
@@ -1000,12 +1347,36 @@ def load_main_ipas():
 
 
 # --------------------------------------------------------------------------- documents
-def _dir(rel):
-    """Absolute path for a configured document directory, or None."""
+def _dir(rel, patterns=(), missing=None):
+    """Absolute path for a configured document directory, or None.
+
+    A missing folder is recorded in ``missing`` rather than warned about on its own:
+    a project usually keeps some of these folders and not others, and one line that
+    lists what was absent reads better than six.
+    """
     if not rel:
         return None
     p = rel if os.path.isabs(rel) else os.path.join(ROOT, rel)
-    return p if os.path.isdir(p) else None
+    if os.path.isdir(p):
+        return p
+    hit = None
+    for pattern in patterns or ():
+        rx = re.compile(pattern, re.I)
+        parent = os.path.dirname(p) or ROOT
+        try:
+            names = sorted(os.listdir(parent))
+        except OSError:
+            names = []
+        for name in names:
+            q = os.path.join(parent, name)
+            if os.path.isdir(q) and rx.search(name):
+                hit = q
+                break
+        if hit is not None:
+            break
+    if hit is None and missing is not None:
+        missing.append(rel)
+    return hit
 
 
 def _files(d):
@@ -1019,15 +1390,16 @@ def _files(d):
 
 def scan_docs():
     docs = (CFG["sources"].get("docs") or {}) if CFG else {}
+    missing = []
     contracts = []
-    cdir = _dir(docs.get("contracts"))
+    cdir = _dir(docs.get("contracts"), (r"contract", r"agreement"), missing)
     for name in _files(cdir):
         p = os.path.join(cdir, name)
         if name.lower().endswith((".md", ".pdf")):
             contracts.append({"name": name, "size": os.path.getsize(p),
                               "ext": name.rsplit(".", 1)[-1].lower()})
     toc = []
-    tdir = _dir(docs.get("toc"))
+    tdir = _dir(docs.get("toc"), (r"taking.?over", r"toc", r"hand.?over", r"accept"), missing)
     for name in _files(tdir):
         p = os.path.join(tdir, name)
         low = name.lower()
@@ -1035,7 +1407,7 @@ def scan_docs():
         toc.append({"name": name, "size": os.path.getsize(p),
                     "state": "issued" if issued else "draft"})
     mats = []
-    mdir = _dir(docs.get("materials"))
+    mdir = _dir(docs.get("materials"), (r"material", r"submittal", r"sample"), missing)
     if mdir is not None:
         for name in sorted(os.listdir(mdir)):
             p = os.path.join(mdir, name)
@@ -1044,9 +1416,12 @@ def scan_docs():
                     mats.append({"name": name, "files": len(os.listdir(p))})
                 except OSError:
                     mats.append({"name": name, "files": 0})
-    counts = {"photos": len(_files(_dir(docs.get("photos")))),
-              "videos": len(_files(_dir(docs.get("videos")))),
-              "pdfLetters": len(_files(_dir(docs.get("pdfLetters"))))}
+    counts = {"photos": len(_files(_dir(docs.get("photos"), (r"photo", r"image", r"picture"), missing))),
+              "videos": len(_files(_dir(docs.get("videos"), (r"video", r"movie", r"clip"), missing))),
+              "pdfLetters": len(_files(_dir(docs.get("pdfLetters"), (r"pdf", r"letter", r"scan"), missing)))}
+    if missing and not (contracts or toc or mats or any(counts.values())):
+        warn("documents: none of the folders %s was found, so the document section is empty"
+             % ", ".join(missing))
     return {"contracts": contracts, "toc": toc, "materials": mats, "media": counts}
 
 
@@ -1307,6 +1682,10 @@ def main(argv=None):
         # project's own currency names rather than whatever the template assumed
         "project": dict(PROJECT, currencies=CURRENCIES),
         "currencies": CURRENCIES,
+        # What this build could not read. A corpus laid out differently is not a
+        # failure: the page shows what the folder does hold and says here which part
+        # it could not find, so a reader can tell a missing register from an empty one.
+        "warnings": list(WARNINGS),
         "taxonomy": build_taxonomy(),
         "contracts": contract_register(main_contract, retention),
         "letters": aggregate_letters(letters),
@@ -1351,6 +1730,13 @@ def main(argv=None):
     with open(pi, "w", encoding="utf-8") as fh:
         json.dump(index, fh, ensure_ascii=False, separators=(",", ":"))
     print("WROTE", pi, os.path.getsize(pi), len(index), "records")
+
+    if WARNINGS:
+        print("WARNINGS", len(WARNINGS))
+        for w in WARNINGS:
+            print("  -", w)
+    else:
+        print("WARNINGS 0")
 
 
 if __name__ == "__main__":

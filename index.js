@@ -130,6 +130,7 @@ const active = {
 	folder: null,
 	builtAt: null,
 	notes: [],
+	found: [],
 };
 
 const build = {
@@ -166,7 +167,7 @@ async function saveState() {
 		await mkdir(cacheRoot(), { recursive: true });
 		await writeFile(
 			await stateFile(),
-			JSON.stringify({ dir: active.dir, source: active.source, folder: active.folder, builtAt: active.builtAt, notes: active.notes }, null, 1),
+			JSON.stringify({ dir: active.dir, source: active.source, folder: active.folder, builtAt: active.builtAt, notes: active.notes, found: active.found }, null, 1),
 			'utf8',
 		);
 	} catch {
@@ -185,6 +186,7 @@ async function restoreState() {
 			active.folder = typeof raw.folder === 'string' ? raw.folder : null;
 			active.builtAt = typeof raw.builtAt === 'string' ? raw.builtAt : null;
 			active.notes = Array.isArray(raw.notes) ? raw.notes : [];
+			active.found = Array.isArray(raw.found) ? raw.found : [];
 		}
 	} catch {
 		/* no previous build, or it was cleaned up: the bundled dataset is the default */
@@ -278,7 +280,9 @@ async function runBuild(folder) {
 		throw new Error(`discovery failed (exit ${discover.code}): ${(discover.stderr || discover.stdout).trim().slice(-400)}`);
 	}
 	const notesLine = discover.stdout.split(/\r?\n/).find((line) => line.startsWith('NOTES '));
+	const foundLine = discover.stdout.split(/\r?\n/).find((line) => line.startsWith('FOUND '));
 	let notes = [];
+	let found = [];
 	if (notesLine) {
 		try {
 			notes = JSON.parse(notesLine.slice(6));
@@ -286,11 +290,41 @@ async function runBuild(folder) {
 			notes = [];
 		}
 	}
+	if (foundLine) {
+		try {
+			found = JSON.parse(foundLine.slice(6));
+		} catch {
+			found = [];
+		}
+	}
 
 	const extract = await run([python, join(ROOT, 'tools', 'build_data.py'), cfgPath], ROOT);
 	build.log += extract.stdout + extract.stderr;
 	if (extract.code !== 0) {
+		// A run that read most of the corpus and then tripped over one workbook is a
+		// partial result, not a failed read: show whatever was written rather than
+		// leaving the reader looking at the previous project.
+		const partial = datasetPaths(join(outDir, 'data'));
+		if (await exists(partial.data)) {
+			notes.push(`the reader stopped early: ${(extract.stderr || extract.stdout).trim().slice(-300)}`);
+			return { dir: join(outDir, 'data'), notes, found, log: extract.stdout, partial: true };
+		}
 		throw new Error(`extraction failed (exit ${extract.code}): ${(extract.stderr || extract.stdout).trim().slice(-400)}`);
+	}
+	// The extractor reports what it could not read on its last lines; those belong
+	// beside the discovery notes so the page can name the empty sections. Discovery
+	// and the extractor often say the same thing about the same record, so the
+	// labels are stripped before comparing or the reader sees it twice.
+	const seen = new Set(notes.map((n) => n.replace(/^reading the folder:\s*/i, '').trim()));
+	for (const line of extract.stdout.split(/\r?\n/)) {
+		const hit = /^\s*-\s+(.*)$/.exec(line);
+		if (!hit) continue;
+		const text = hit[1].trim();
+		const bare = text.replace(/^reading the folder:\s*/i, '').trim();
+		if (!seen.has(bare)) {
+			seen.add(bare);
+			notes.push(text);
+		}
 	}
 
 	const built = join(outDir, 'data');
@@ -298,7 +332,7 @@ async function runBuild(folder) {
 	if (!(await exists(paths.data)) || !(await exists(paths.index))) {
 		throw new Error('the extractor finished without writing a dataset');
 	}
-	return { dir: built, notes, log: extract.stdout };
+	return { dir: built, notes, found, log: extract.stdout };
 }
 
 async function startBuild(folder) {
@@ -317,6 +351,7 @@ async function startBuild(folder) {
 			active.folder = folder;
 			active.builtAt = new Date().toISOString();
 			active.notes = result.notes;
+			active.found = result.found;
 			// Drop every cached parse: the same path can be rebuilt with new numbers.
 			cache.clear();
 			build.status = 'ready';
@@ -344,6 +379,7 @@ function handleState(req, res) {
 			folder: active.folder,
 			builtAt: active.builtAt,
 			notes: active.notes,
+			found: active.found,
 		},
 		build: {
 			status: build.status,
@@ -412,6 +448,7 @@ async function handleReset(req, res) {
 	active.folder = null;
 	active.builtAt = null;
 	active.notes = [];
+	active.found = [];
 	// The last build's outcome belongs to the folder that was just dropped; keeping
 	// it would leave the page reporting a finished read of a project it no longer shows.
 	build.status = 'idle';

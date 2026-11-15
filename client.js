@@ -203,7 +203,19 @@ window.__ModuleLoader__.load({
 .epc-src-busy{display:flex;align-items:center;gap:6px;color:var(--epc-accent);font-weight:600;white-space:nowrap}
 .epc-src-busy .epc-dot{animation:epc-pulse 1.1s ease-in-out infinite}
 .epc-src-err{color:var(--epc-crit);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:38ch}
+.epc-src-notes{appearance:none;border:1px solid var(--epc-line2);border-radius:99px;background:transparent;color:var(--epc-warn,var(--epc-accent));font:600 10px/1 var(--epc-mono);letter-spacing:.04em;padding:4px 8px;cursor:pointer;white-space:nowrap}
+.epc-src-notes:hover{background:var(--epc-hover)}
+.epc-src-notes.on{background:var(--epc-panel);border-color:var(--epc-warn,var(--epc-accent))}
+/* Everything was found: the same pill, in the colour that means "no gap". */
+.epc-src-notes.ok{color:var(--epc-acc2,var(--epc-accent));border-color:color-mix(in srgb,var(--epc-acc2,var(--epc-accent)) 45%,var(--epc-line2))}
+.epc-src-notes.ok.on{border-color:var(--epc-acc2,var(--epc-accent))}
 .epc-src .grow{flex:1 1 auto}
+.epc-notes{margin:7px 0 0;padding:11px 13px 12px;border:1px solid var(--epc-line2);border-radius:7px;background:var(--epc-panel2);font-size:11.5px;color:var(--epc-muted)}
+.epc-notes-k{font:600 9.5px/1 var(--epc-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--epc-dim);margin-bottom:7px}
+.epc-notes-l{margin:0;padding-left:16px;display:flex;flex-direction:column;gap:4px}
+.epc-notes-l li{line-height:1.45;overflow-wrap:anywhere}
+.epc-notes-ok{margin-bottom:2px}
+.epc-notes-k+.epc-notes-l+.epc-notes-k{margin-top:13px}
 .epc-wait{display:flex;flex-direction:column;gap:7px;align-items:flex-start;padding:36px 30px;margin:8px 0 0;border:1px solid var(--epc-line2);border-radius:8px;background:var(--epc-panel2)}
 .epc-wait-k{font-weight:650;font-size:13px;color:var(--epc-text);display:flex;align-items:center;gap:8px}
 .epc-wait-k::after{content:"";width:9px;height:9px;border-radius:99px;background:var(--epc-accent);animation:epc-pulse 1.1s ease-in-out infinite}
@@ -846,6 +858,12 @@ window.__ModuleLoader__.load({
 			'src.reset': 'Use demo data',
 			'src.reset.hint': 'Go back to the dataset that ships with the plugin.',
 			'src.failed': 'Could not read that folder',
+			'src.notes': '{n} part(s) not found',
+			'src.notes.hint': 'The folder was read. These are the records it does not hold, so the page is showing what it could find.',
+			'src.notes.title': 'Not found in this folder ({n})',
+			'src.found': 'read {n} part(s)',
+			'src.found.hint': 'Everything the reader recognised in this folder. Nothing was missing, which is why there is no list of gaps.',
+			'src.found.title': 'Read from this folder ({n})',
 			'src.no.picker': 'This page cannot open a folder chooser here. Set the folder in the workbench configuration instead.',
 			'kind.L': 'Letter',
 			'kind.M': 'Meeting',
@@ -1183,6 +1201,12 @@ window.__ModuleLoader__.load({
 			'src.reset': '使用演示数据',
 			'src.reset.hint': '回到插件自带的演示数据集。',
 			'src.failed': '无法读取该文件夹',
+			'src.notes': '缺少 {n} 项',
+			'src.notes.hint': '文件夹已读取。以下是该文件夹中没有的记录，页面显示的是能够找到的部分。',
+			'src.notes.title': '该文件夹中未找到（{n} 项）',
+			'src.found': '已读取 {n} 项',
+			'src.found.hint': '该文件夹中识别到的全部内容。没有缺失项，因此不显示缺失清单。',
+			'src.found.title': '已从该文件夹读取（{n} 项）',
 			'src.no.picker': '当前页面无法打开文件夹选择器，请在插件配置中指定文件夹。',
 			'kind.L': '函件',
 			'kind.M': '会议',
@@ -3308,6 +3332,8 @@ function contractList(data) {
 			var active = props.active;
 			var busy = props.busy;
 			var error = props.error;
+			var notes = props.notes || [];
+			var found = props.found || [];
 			var isFolder = active && active.source === 'folder';
 			return h('div', { className: 'epc-src' + (isFolder ? ' on' : '') },
 				h('span', { className: 'epc-src-k' }, t('src.title')),
@@ -3322,6 +3348,24 @@ function contractList(data) {
 				busy
 					? h('span', { className: 'epc-src-busy' }, h('i', { className: 'epc-dot' }), t('src.reading'))
 					: null,
+				notes.length > 0
+					/* A folder whose records differ from the ones this workbench was
+					   first pointed at still renders; the count says how much of the
+					   page could not be filled, and the list says which parts. */
+					? h('button', {
+						className: 'epc-src-notes' + (props.notesOpen ? ' on' : ''),
+						onClick: props.onToggleNotes,
+						title: t('src.notes.hint')
+					}, t('src.notes', { n: notes.length }))
+					: (isFolder && found.length > 0
+						/* Nothing missing is worth saying too: otherwise a folder read
+						   completely looks the same as one nobody has opened. */
+						? h('button', {
+							className: 'epc-src-notes ok' + (props.notesOpen ? ' on' : ''),
+							onClick: props.onToggleNotes,
+							title: t('src.found.hint')
+						}, t('src.found', { n: found.length }))
+						: null),
 				h('span', { className: 'grow' }),
 				busy ? null : h('button', {
 					className: 'epc-btn',
@@ -3333,6 +3377,32 @@ function contractList(data) {
 					onClick: props.onReset,
 					title: t('src.reset.hint')
 				}, t('src.reset')) : null);
+		}
+
+		function NoteList(props) {
+			var notes = props.notes || [];
+			var found = props.found || [];
+			if (notes.length === 0 && found.length === 0) return null;
+			return h('div', { className: 'epc-notes' },
+				notes.length > 0
+					? h('div', { className: 'epc-notes-k' }, t('src.notes.title', { n: notes.length }))
+					: null,
+				notes.length > 0
+					? h('ul', { className: 'epc-notes-l' }, notes.map(function (n, i) {
+						return h('li', { key: 'n' + i }, n);
+					}))
+					: null,
+				found.length > 0
+					/* What the reader did recognise. Worth printing: a folder read
+					   completely shows the same list, so 'read 4 of 4' is a statement
+					   about the project, not a log line. */
+					? h('div', { className: 'epc-notes-k' }, t('src.found.title', { n: found.length }))
+					: null,
+				found.length > 0
+					? h('ul', { className: 'epc-notes-l epc-notes-ok' }, found.map(function (n, i) {
+						return h('li', { key: 'f' + i }, n);
+					}))
+					: null);
 		}
 
 		function Workbench(props) {
@@ -3351,6 +3421,7 @@ function contractList(data) {
 			var [reading, setReading] = useState(false);
 			var [sourceError, setSourceError] = useState(null);
 			var [readProgress, setReadProgress] = useState('');
+			var [notesOpen, setNotesOpen] = useState(false);
 
 			function load() {
 				setState({ status: 'loading', data: null, error: null });
@@ -3457,6 +3528,35 @@ function contractList(data) {
 			}, [palette]);
 
 			var data = state.data;
+			/* Everything the reader could not open, from both halves: the host keeps
+			   what discovery could not recognise, the payload keeps what the
+			   extractor could not read. A page that shows four empty cards and no
+			   explanation reads like a broken plugin. */
+			var readNotes = useMemo(function () {
+				var out = [];
+				var seen = {};
+				var push = function (list) {
+					(list || []).forEach(function (n) {
+						var text = String(n || '').trim();
+						if (text && !seen[text]) { seen[text] = true; out.push(text); }
+					});
+				};
+				if (source && source.active) push(source.active.notes);
+				if (data) push(data.warnings);
+				return out;
+			}, [source, data]);
+			/* What discovery recognised. Kept apart from readNotes because a folder
+			   read completely must say so: four 'found' lines are four successes, and
+			   showing them under a 'not found' heading would report the opposite. */
+			var readFound = useMemo(function () {
+				var out = [];
+				var seen = {};
+				((source && source.active && source.active.found) || []).forEach(function (n) {
+					var text = String(n || '').trim();
+					if (text && !seen[text]) { seen[text] = true; out.push(text); }
+				});
+				return out;
+			}, [source]);
 			var counts = data ? {
 				correspondence: data.letters.total,
 				meetings: data.meetings.total,
@@ -3586,9 +3686,14 @@ function contractList(data) {
 								active: source && source.active ? source.active : null,
 								busy: reading,
 								error: sourceError,
+								notes: readNotes,
+								found: readFound,
+								notesOpen: notesOpen,
+								onToggleNotes: function () { setNotesOpen(function (v) { return !v; }); },
 								onPick: pickFolder,
 								onReset: resetSource
-							})),
+							}),
+							notesOpen ? h(NoteList, { notes: readNotes, found: readFound }) : null),
 						h('div', { className: 'epc-scroll' }, body))),
 
 				h('div', { className: 'epc-status' },

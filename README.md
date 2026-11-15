@@ -88,6 +88,36 @@ The extractor is tolerant by design: every source is optional, and a folder that
 there produces an empty section rather than a failed build, so a workbench can start
 with correspondence and grow into payments later.
 
+### A folder that is not laid out like this one
+
+A project on another machine is rarely the same set of filenames and folder names. Nothing
+here requires an exact file:
+
+* **Workbooks are found by what they hold, not what they are called.** The payment register
+  is the workbook with an interim-payment sheet *and* a monthly-record sheet, searched
+  several levels down; the defect register is the workbook whose sheet reads like one; the
+  retention and certificate workbooks fall back to the newest one that opens like a
+  certificate. A configured path is used when it exists, and a name match replaces it when
+  it does not.
+* **Sheets are matched by pattern.** `IPC-008 (52)` or `IPC-009`, `GRAND SUM` or
+  ` SUM ACC` or `SUM Coal Yard` — trailing spaces and case are ignored, and the item sheet
+  is the one whose first rows mention a BOQ amount and a cumulative figure.
+* **Folders may sit at any depth.** Letter and minute folders are found by walking the tree
+  and reading the first file, so `records/letters/issued` works as well as
+  `md_Letters_issued_to_ADVE`, and a folder named `incoming` works as well as
+  `…_received_from_…`.
+* **Unreadable is not fatal.** Every `load_workbook` is guarded; a corrupt or locked file
+  becomes one line of explanation and the rest of the page still fills.
+* **Nothing is invented.** Whatever could not be read is listed, and the page names the
+  empty parts instead of showing a plausible zero.
+
+The result is reported in two groups, because they mean opposite things. `read N part(s)`
+lists what was recognised — on a complete folder it is the whole list, with no gaps, which
+is itself the answer. `N part(s) not found` lists what the folder did not hold, and the page
+renders the rest. A partial extraction (the reader trips over one workbook after writing
+most of the dataset) is shown rather than thrown away: the page tells you it stopped early
+and shows what it managed to read.
+
 ## Installing as a Harness plugin
 
 The package root is the plugin: `index.js` is the host half (it serves the dataset and runs

@@ -94,6 +94,12 @@ def normalise(raw):
     # The list belongs to the project — that is where the documentation puts it —
     # but a top-level list is accepted too so a hand-written file cannot silently
     # lose the second currency.
+    # A configuration that is merely incomplete — a currency without a code, a
+    # contract whose counterparty is not a known party — must not stop the build:
+    # the workbench shows what the records do hold. Only a value the reader cannot
+    # interpret at all is repaired here, and the repair is recorded in NOTES so the
+    # interface can say which part of the page rests on a guess.
+    notes = raw.setdefault("_notes", [])
     declared = project.get("currencies") or raw.get("currencies") or []
     currencies = []
     for i, c in enumerate(declared):
@@ -101,7 +107,8 @@ def normalise(raw):
             c = {"code": c}
         code = (c.get("code") or "").upper()
         if not code:
-            raise ConfigError("currencies[%d] has no code" % i)
+            notes.append("currencies[%d] had no code and was ignored" % i)
+            continue
         currencies.append({
             "code": code,
             "label": c.get("label") or code,
@@ -119,7 +126,8 @@ def normalise(raw):
     parties = []
     for i, p in enumerate(raw.get("parties") or []):
         if "id" not in p:
-            raise ConfigError("parties[%d] has no id" % i)
+            notes.append("parties[%d] had no id and was ignored" % i)
+            continue
         parties.append({
             "id": p["id"],
             "name": p.get("name") or p["id"],
@@ -138,13 +146,23 @@ def normalise(raw):
     contracts = []
     for i, c in enumerate(raw.get("contracts") or []):
         if "id" not in c:
-            raise ConfigError("contracts[%d] has no id" % i)
+            notes.append("contracts[%d] had no id and was ignored" % i)
+            continue
         kind = c.get("kind") or "sub"
         if kind not in CONTRACT_KINDS:
-            raise ConfigError("contracts[%d].kind must be one of %s" % (i, CONTRACT_KINDS))
+            notes.append("contracts[%d] (%s) had kind %r, read as a subcontract"
+                         % (i, c["id"], kind))
+            kind = "sub"
         counterparty = c.get("counterparty") or ("employer" if kind == "main" else "subcontractor")
         if counterparty not in party_ids:
-            raise ConfigError("contracts[%d].counterparty %r is not a party id" % (i, counterparty))
+            # The party list is a convenience, not a constraint: a contract can name
+            # a counterparty the parties table forgot, and printing the id is better
+            # than refusing to read the contract at all.
+            notes.append("contract %s names counterparty %r, which is not in the parties list"
+                         % (c["id"], counterparty))
+            parties.append({"id": counterparty, "name": counterparty, "former": "",
+                            "abbr": "", "role": counterparty})
+            party_ids.add(counterparty)
         contracts.append({
             "id": c["id"],
             "kind": kind,
@@ -194,7 +212,8 @@ def normalise(raw):
     letters = []
     for i, s in enumerate(letter_src):
         if not s.get("dir"):
-            raise ConfigError("sources.letters[%d] has no dir" % i)
+            notes.append("sources.letters[%d] had no dir and was ignored" % i)
+            continue
         letters.append({
             "dir": s["dir"],
             "series": s.get("series") or s["dir"],
@@ -204,13 +223,17 @@ def normalise(raw):
         })
     for s in letters:
         if s["contract"] not in contract_ids:
-            raise ConfigError("sources.letters entry %r names unknown contract %r"
-                              % (s["dir"], s["contract"]))
+            # A series that names a contract the table does not hold still has
+            # letters in it; the main contract is the least surprising owner.
+            notes.append("letters %r named unknown contract %r and is read against %s"
+                         % (s["dir"], s["contract"], main["id"]))
+            s["contract"] = main["id"]
 
     meetings = []
     for i, s in enumerate(meeting_src):
         if not s.get("dir"):
-            raise ConfigError("sources.meetings[%d] has no dir" % i)
+            notes.append("sources.meetings[%d] had no dir and was ignored" % i)
+            continue
         meetings.append({
             "dir": s["dir"],
             "series": s.get("series") or s["dir"],
@@ -219,8 +242,9 @@ def normalise(raw):
         })
     for s in meetings:
         if s["contract"] not in contract_ids:
-            raise ConfigError("sources.meetings entry %r names unknown contract %r"
-                              % (s["dir"], s["contract"]))
+            notes.append("minutes %r named unknown contract %r and are read against %s"
+                         % (s["dir"], s["contract"], main["id"]))
+            s["contract"] = main["id"]
 
     sheets = dict(sources.get("sheets") or {})
     sheets.setdefault("ipc", "")
@@ -249,6 +273,9 @@ def normalise(raw):
         "meetings": meetings,
         "main": main,
         "subs": subs,
+        # Whatever the configuration had to assume or ignore, kept for the payload:
+        # a page that shows a repaired value has to be able to say that it did.
+        "notes": list(notes),
     }
 
 
@@ -767,14 +794,63 @@ def _sheets_of(path):
     return names
 
 
-def _pick_register(folder):
-    """The workbook that holds the payment register, by its sheet names."""
-    for name in _xlsx_files(folder):
-        sheets = _sheets_of(os.path.join(folder, name))
+def _pick_register(folder, depth=3):
+    """The workbook that holds the payment register, by its sheet names.
+
+    Searched downward rather than only at the top, because a project on another
+    machine keeps its register under the payment folder: 'IPCs/Payments/payment
+    register 2026.xlsx' is the same record as 'IPCs/….xlsx' one level up.
+    """
+    for path in _xlsx_paths(folder, depth):
+        sheets = _sheets_of(path)
         low = [s.lower() for s in sheets]
         if any("interim payment" in s for s in low) and any("monthly" in s for s in low):
-            return name, sheets
+            return path, sheets
     return "", []
+
+
+def _xlsx_paths(folder, depth=3):
+    """Every workbook under a folder, at most ``depth`` levels deep."""
+    return [p for p, _d in _walk(folder, depth)
+            if p.lower().endswith((".xlsx", ".xlsm"))
+            and not os.path.basename(p).startswith("~$")]
+
+
+def _walk(folder, depth=3, limit=4000):
+    """Every path under a folder, breadth first, paired with its depth.
+
+    A corpus on another machine groups its records however its author liked:
+    'records/letters/issued', 'letters/2026/in', or the letters sitting beside the
+    minutes. One fixed shape would mean the reader only works on the machine whose
+    layout was looked at first, so every search here is a bounded walk rather than a
+    list of guessed folder names.
+    """
+    out = []
+    if not os.path.isdir(folder):
+        return out
+    level = [(folder, 0)]
+    while level and len(out) < limit:
+        nxt = []
+        for base, d in level:
+            try:
+                names = sorted(os.listdir(base))
+            except OSError:
+                continue
+            for name in names:
+                if name.startswith("."):
+                    continue
+                p = os.path.join(base, name)
+                out.append((p, d + 1))
+                if os.path.isdir(p) and d + 1 < depth:
+                    nxt.append((p, d + 1))
+        level = nxt
+    return out
+
+
+def _md_dirs(folder, depth=3):
+    """Directories that hold markdown, shallowest first."""
+    return [p for p, _d in _walk(folder, depth)
+            if os.path.isdir(p) and _md_files(p)]
 
 
 def _direction(head):
@@ -871,16 +947,12 @@ def discover(folder):
 
     # ---------------------------------------------------------------- letter series
     series = []
-    for d in top:
-        full = os.path.join(folder, d)
-        md = _md_files(full)
-        if not md or not LETTER_DIR_RE.search(d):
-            continue
-        if not re.search(r"issued|received|sent", d, re.I):
-            continue
+
+    def _series_from(d, full, md):
+        """One letter series from a folder, or None when it does not read like one."""
         head = _letter_head(os.path.join(full, md[0]))
-        if not (head.get("LetterNo") or head.get("RefNo") or head.get("Subject")):
-            continue
+        if not (head.get("LetterNo") or head.get("RefNo") or head.get("Subject") or head.get("DocType")):
+            return None
         ref = head.get("LetterNo") or head.get("RefNo") or md[0]
         toks = _ref_tokens(ref) or _ref_tokens(md[0])
         # the newest file matters as well as the oldest one: both parties rename
@@ -890,9 +962,17 @@ def discover(folder):
         ref_last = newer.get("LetterNo") or newer.get("RefNo") or md[-1]
         toks_last = _ref_tokens(ref_last) or _ref_tokens(md[-1]) or toks
         frm, to = _direction(head)
-        side = "received" if re.search(r"received", d, re.I) else "issued"
-        if re.search(r"received", (head.get("DocType") or ""), re.I):
+        # The direction is written in the folder name when the project names its
+        # folders that way, and in the letter itself when it does not: a folder
+        # called 'outgoing' or 'received' says the same thing as 'issued to X'.
+        side = "issued"
+        if re.search(r"received|incoming|from", d, re.I):
             side = "received"
+        if re.search(r"received|incoming", (head.get("DocType") or ""), re.I):
+            side = "received"
+        elif frm and to:
+            # the sender is the other organisation when the file was received
+            side = "received" if re.search(r"received", d, re.I) else "issued"
         pkg = _package_of_ref(ref) or _package_of_ref(md[0]) or _package_of_ref(md[-1])
         # Every reference reads SENDER-RECEIVER-…, so the party a series is
         # *about* is the other end from its direction: the receiver of an issued
@@ -903,7 +983,7 @@ def discover(folder):
             other_tok = toks[1] if len(toks) > 1 else (frm if frm and frm != (toks[0] if toks else "") else "")
         else:
             other_tok = toks[0] if toks else frm
-        series.append({
+        return {
             "dir": d,
             "side": side,
             "count": len(md),
@@ -915,13 +995,62 @@ def discover(folder):
             "to": to,
             "tokens": toks,
             "tokens_last": toks_last,
-        })
+        }
+
+    for d in top:
+        full = os.path.join(folder, d)
+        md = _md_files(full)
+        if not md or not LETTER_DIR_RE.search(d):
+            continue
+        if not re.search(r"issued|received|sent|outgoing|incoming|from|to", d, re.I):
+            # The folder name says nothing about direction, but the letters in it do,
+            # and a corpus on another machine will not use this project's vocabulary.
+            head = _letter_head(os.path.join(full, md[0]))
+            if not (head.get("LetterNo") or head.get("RefNo")):
+                continue
+        got = _series_from(d, full, md)
+        if got is not None:
+            series.append(got)
+    if not series:
+        # Nothing at the top level reads like a letter series: the letters are grouped
+        # inside a folder of their own, which is how a corpus that organises its
+        # records by party or by year is laid out. Walk instead of guessing depth.
+        seen_dirs = set()
+        for full in _md_dirs(folder, depth=3):
+            rel = os.path.relpath(full, folder).replace("\\", "/")
+            if rel in seen_dirs or rel == ".":
+                continue
+            seen_dirs.add(rel)
+            md = _md_files(full)
+            got = _series_from(rel, full, md)
+            if got is not None:
+                series.append(got)
     if not series:
         notes.append("no letter series were recognised (a folder named …letters… holding "
                      "markdown with a [LetterNo] header)")
 
     # ---------------------------------------------------------------- meeting series
     meeting_dirs = []
+
+    def _is_minutes(d, full):
+        """A folder of minutes: the name says so, or the first file does.
+
+        The name is the cheap test and the file is the honest one — a corpus on
+        another machine may call the folder 'records/site/2026' and still hold the
+        minutes of a site meeting.
+        """
+        if MOM_DIR_RE.search(d):
+            return True
+        md = _md_files(full)
+        if not md:
+            return False
+        try:
+            with open(os.path.join(full, md[0]), encoding="utf-8", errors="replace") as fh:
+                head = fh.read(1200)
+        except OSError:
+            return False
+        return bool(re.search(r"minute|meeting", head, re.I))
+
     for d in top:
         full = os.path.join(folder, d)
         if MOM_DIR_RE.search(d) and not LETTER_DIR_RE.search(d):
@@ -934,6 +1063,14 @@ def discover(folder):
             for x in _subdirs(full):
                 if MOM_DIR_RE.search(x) and _md_files(os.path.join(full, x)):
                     meeting_dirs.append(os.path.join(d, x))
+    if not meeting_dirs:
+        # Same reason as the letters: walk the tree instead of naming its levels.
+        for full in _md_dirs(folder, depth=3):
+            rel = os.path.relpath(full, folder).replace("\\", "/")
+            if rel == "." or rel in meeting_dirs:
+                continue
+            if _is_minutes(os.path.basename(full), full) and not LETTER_DIR_RE.search(rel):
+                meeting_dirs.append(rel)
     if not meeting_dirs:
         notes.append("no minute books were recognised (a folder named …meeting/minutes… "
                      "holding markdown)")
@@ -962,8 +1099,7 @@ def discover(folder):
         reg_name, reg_sheets = _pick_register(folder)
     reg_rel = ""
     if reg_name:
-        base = ipc_root if os.path.isfile(os.path.join(ipc_root, reg_name)) else folder
-        reg_rel = os.path.relpath(os.path.join(base, reg_name), folder).replace("\\", "/")
+        reg_rel = os.path.relpath(reg_name, folder).replace("\\", "/")
         sources["paymentsRegister"] = reg_rel
         low = [(s, s.lower()) for s in reg_sheets]
         sheets = {}

@@ -191,12 +191,47 @@ const tabFlag = flags.find((a) => COM_TABS.indexOf(a) >= 0)
 const subScope = flags.indexOf('sub') >= 0
 const theme = flags.indexOf('light') >= 0 ? 'light' : 'dark'
 const targets = only ? [only] : VIEWS
+// 'folder' renders the strip as it looks after a real folder was read, and
+// 'gaps' renders it with what that folder did not hold. Both are states a reader
+// meets on a second machine and neither is reachable from the bundled dataset.
+const folderMode = flags.indexOf('folder') >= 0
+const gapsMode = flags.indexOf('gaps') >= 0
+const notesOpen = gapsMode || flags.indexOf('notes') >= 0
+
+function readSource() {
+  if (!folderMode && !gapsMode) return { active: null, build: null }
+  const gaps = gapsMode
+    ? ['no main-contract certificates were found',
+       'retention for P02: no workbook with a retention sheet was found, so the retention tab is empty']
+    : []
+  return {
+    active: {
+      source: 'folder',
+      folder: 'D:/projects/coal-yard',
+      builtAt: '2026-11-15T06:31:00.000Z',
+      notes: gaps,
+      found: ['payment register: IPCs/CYE. Interim Payment Records - 260929.xlsx (sheets ipc=Interim Payment to ADVE, employer=Interim Payment from CEB, monthly=Monthly Interim Payment Records)',
+              'currencies named by the certificate header: USD, LKR, JPY',
+              'main contract number: CEB/DGM/GP/2019/01'],
+    },
+    build: { status: 'ready', folder: 'D:/projects/coal-yard', error: null, progress: '' },
+  }
+}
 
 for (const view of targets) {
   OVERRIDES.Workbench = [{ status: 'ready', data, error: null }, view, false, false]
   // Workbench state order is (state, view, mini, palette, scope) — the scope slot
   // applies to every view, the commercial tab only to that one.
   OVERRIDES.Workbench[4] = subScope ? 'P02' : 'MAIN'
+  // The source strip reads six more slots: the folder it was pointed at, whether a
+  // read is running, its error, the progress line and whether the list is open.
+  // Rendering it from a real folder's answer is the only way to see what a reader
+  // sees after choosing a folder, which is the state this view exists for.
+  OVERRIDES.Workbench[5] = readSource()
+  OVERRIDES.Workbench[6] = false
+  OVERRIDES.Workbench[7] = null
+  OVERRIDES.Workbench[8] = ''
+  OVERRIDES.Workbench[9] = notesOpen
   if (view === 'commercial') {
     // The tab lives inside ViewCommercial, whose hook order is (tab, scopeLocal).
     OVERRIDES.ViewCommercial = [tabFlag || (subScope ? 'ipcs' : 'ipas'), subScope ? 'P02' : 'MAIN']
@@ -232,7 +267,8 @@ html,body{margin:0;height:100%;background:var(--dsw-alias-bg-base);color:var(--d
 </style>
 <style>${CSS}</style></head>
 <body><div id="host">${html}</div><div class="pv-label">${theme}/${view}</div></body></html>`
-  const file = join(OUT, view + (view === 'commercial' && (tabFlag || subScope) ? '.' + (subScope ? 'sub' : 'main') + '.' + (tabFlag || (subScope ? 'ipcs' : 'ipas')) : (subScope ? '.sub' : '')) + (LANG === 'zh' ? '.zh' : '') + (theme === 'light' ? '.light' : '') + '.html')
+  const mode = gapsMode ? '.gaps' : (folderMode ? '.folder' : '')
+  const file = join(OUT, view + (view === 'commercial' && (tabFlag || subScope) ? '.' + (subScope ? 'sub' : 'main') + '.' + (tabFlag || (subScope ? 'ipcs' : 'ipas')) : (subScope ? '.sub' : '')) + mode + (LANG === 'zh' ? '.zh' : '') + (theme === 'light' ? '.light' : '') + '.html')
   await writeFile(file, page, 'utf8')
   console.log('wrote ' + file + ' (' + page.length + ' B)')
 }

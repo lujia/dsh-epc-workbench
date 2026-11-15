@@ -183,7 +183,19 @@
 .epc-src-busy{display:flex;align-items:center;gap:6px;color:var(--epc-accent);font-weight:600;white-space:nowrap}
 .epc-src-busy .epc-dot{animation:epc-pulse 1.1s ease-in-out infinite}
 .epc-src-err{color:var(--epc-crit);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:38ch}
+.epc-src-notes{appearance:none;border:1px solid var(--epc-line2);border-radius:99px;background:transparent;color:var(--epc-warn,var(--epc-accent));font:600 10px/1 var(--epc-mono);letter-spacing:.04em;padding:4px 8px;cursor:pointer;white-space:nowrap}
+.epc-src-notes:hover{background:var(--epc-hover)}
+.epc-src-notes.on{background:var(--epc-panel);border-color:var(--epc-warn,var(--epc-accent))}
+/* Everything was found: the same pill, in the colour that means "no gap". */
+.epc-src-notes.ok{color:var(--epc-acc2,var(--epc-accent));border-color:color-mix(in srgb,var(--epc-acc2,var(--epc-accent)) 45%,var(--epc-line2))}
+.epc-src-notes.ok.on{border-color:var(--epc-acc2,var(--epc-accent))}
 .epc-src .grow{flex:1 1 auto}
+.epc-notes{margin:7px 0 0;padding:11px 13px 12px;border:1px solid var(--epc-line2);border-radius:7px;background:var(--epc-panel2);font-size:11.5px;color:var(--epc-muted)}
+.epc-notes-k{font:600 9.5px/1 var(--epc-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--epc-dim);margin-bottom:7px}
+.epc-notes-l{margin:0;padding-left:16px;display:flex;flex-direction:column;gap:4px}
+.epc-notes-l li{line-height:1.45;overflow-wrap:anywhere}
+.epc-notes-ok{margin-bottom:2px}
+.epc-notes-k+.epc-notes-l+.epc-notes-k{margin-top:13px}
 .epc-wait{display:flex;flex-direction:column;gap:7px;align-items:flex-start;padding:36px 30px;margin:8px 0 0;border:1px solid var(--epc-line2);border-radius:8px;background:var(--epc-panel2)}
 .epc-wait-k{font-weight:650;font-size:13px;color:var(--epc-text);display:flex;align-items:center;gap:8px}
 .epc-wait-k::after{content:"";width:9px;height:9px;border-radius:99px;background:var(--epc-accent);animation:epc-pulse 1.1s ease-in-out infinite}
