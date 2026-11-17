@@ -48,7 +48,7 @@ Once the plugin is installed you do not have to write a configuration file to se
 project. A strip sits above every page:
 
 ```
-PROJECT  Demo dataset  shipped with the plugin                    [ Choose folder ]  [ Use demo data ]
+PROJECT  Demo dataset  shipped with the plugin                    [ Choose folder ]  [ Analyze with model ]  [ Use demo data ]
 ```
 
 `Choose folder` opens the host's native directory picker. Whatever folder you pick is read
@@ -59,6 +59,10 @@ the currency list from the records themselves; the extracted dataset is then wri
 onto it. **The project folder is only ever read.** The strip then names the folder and the
 time it was read, and lists anything discovery could not establish, so a blank field is
 never mistaken for a zero.
+
+`Analyze with model` reads the folder even when nothing in it matches the reader's
+expectations, by asking the model the harness is running to work out what the folder holds
+— see [When the reader recognises nothing at all](#when-the-reader-recognises-nothing-at-all).
 
 A real project takes a minute or two: the build runs in the background and the page polls
 `/plugins/epc-workbench/state`, showing the extractor's last progress line while it works.
@@ -117,6 +121,35 @@ is itself the answer. `N part(s) not found` lists what the folder did not hold, 
 renders the rest. A partial extraction (the reader trips over one workbook after writing
 most of the dataset) is shown rather than thrown away: the page tells you it stopped early
 and shows what it managed to read.
+
+### When the reader recognises nothing at all
+
+Patterns cover a folder that is laid out differently. They cannot cover a folder whose
+records are shaped differently — a punch list whose columns are ordered another way, a
+ledger with unfamiliar sheet names, letters whose header block was written by a different
+tool. For that case the host asks the model the harness is already running:
+
+1. `tools/inventory.py` describes the folder — per-directory file counts and sample names,
+   the header block of a spread of documents, the sheet names and first rows of a spread of
+   workbooks. Every ceiling is capped and the document says when it was cut short.
+2. `analyze.js` asks the running model, with that description, which folder is which kind
+   of record and which sheet holds what, and gets back a configuration in the same shape
+   `tools/epc_config.py` reads.
+3. The extractor runs against that configuration, so the page is built from the real
+   records, not from the model's prose. Only the *layout* is the model's judgement; every
+   number on the page is still read out of the file it comes from.
+
+This happens automatically when the deterministic reader recognises nothing, and can be
+forced with the **Analyze with model** button in the project strip. The strip then shows
+which model described the layout (`layout by …`), so a reader can see where the shape of
+the page came from. It is not a fallback that hides its failures: when the model cannot
+name a contract in the folder, the strip says so and the page stays as the reader left it.
+
+The model is asked with `ctx.get('llm')` on the route `ctx.get('agentDefaultModel')`
+currently selects — the same provider, model and reasoning effort as the conversation you
+are in. Nothing else is sent: no session, no conversation history, only the folder
+description. A build made this way is cached like any other, under
+`$DSH_HOME/cache/epc-workbench/<hash>/`, so re-opening the folder does not ask again.
 
 ## Installing as a Harness plugin
 

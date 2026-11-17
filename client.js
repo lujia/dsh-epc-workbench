@@ -16,6 +16,7 @@ window.__ModuleLoader__.load({
 		var INDEX_URL = ROUTE_PREFIX + '/index';
 		var STATE_URL = ROUTE_PREFIX + '/state';
 		var FOLDER_URL = ROUTE_PREFIX + '/folder';
+		var ANALYZE_URL = ROUTE_PREFIX + '/analyze';
 		var RESET_URL = ROUTE_PREFIX + '/reset';
 
 		var CSS = String.raw`
@@ -209,6 +210,7 @@ window.__ModuleLoader__.load({
 /* Everything was found: the same pill, in the colour that means "no gap". */
 .epc-src-notes.ok{color:var(--epc-acc2,var(--epc-accent));border-color:color-mix(in srgb,var(--epc-acc2,var(--epc-accent)) 45%,var(--epc-line2))}
 .epc-src-notes.ok.on{border-color:var(--epc-acc2,var(--epc-accent))}
+.epc-src-model{font:600 10px/1 var(--epc-mono);letter-spacing:.02em;color:var(--epc-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:34ch;padding:4px 2px}
 .epc-src .grow{flex:1 1 auto}
 .epc-notes{margin:7px 0 0;padding:11px 13px 12px;border:1px solid var(--epc-line2);border-radius:7px;background:var(--epc-panel2);font-size:11.5px;color:var(--epc-muted)}
 .epc-notes-k{font:600 9.5px/1 var(--epc-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--epc-dim);margin-bottom:7px}
@@ -865,6 +867,11 @@ window.__ModuleLoader__.load({
 			'src.found.hint': 'Everything the reader recognised in this folder. Nothing was missing, which is why there is no list of gaps.',
 			'src.found.title': 'Read from this folder ({n})',
 			'src.no.picker': 'This page cannot open a folder chooser here. Set the folder in the workbench configuration instead.',
+			'src.analyze': 'Analyze with model',
+			'src.analyze.hint': 'Read this folder by asking the model you are running to work out what it holds. Use it when the reader recognises nothing in a folder that clearly has records in it.',
+			'src.analyze.wait': 'Asking the model what this folder holds…',
+			'src.model': 'layout by {model}',
+			'src.model.hint': 'The sections on this page were mapped by {model}, which read a description of the folder rather than the records themselves. Check the figures against the source files before relying on them.',
 			'kind.L': 'Letter',
 			'kind.M': 'Meeting',
 			'kind.D': 'Defect',
@@ -1208,6 +1215,11 @@ window.__ModuleLoader__.load({
 			'src.found.hint': '该文件夹中识别到的全部内容。没有缺失项，因此不显示缺失清单。',
 			'src.found.title': '已从该文件夹读取（{n} 项）',
 			'src.no.picker': '当前页面无法打开文件夹选择器，请在插件配置中指定文件夹。',
+			'src.analyze': '用大模型分析',
+			'src.analyze.hint': '让正在使用的大模型判断该文件夹里有什么，并据此生成读取配置。适用于文件夹里明显有记录、但常规读取未能识别的场合。',
+			'src.analyze.wait': '正在请大模型分析该文件夹…',
+			'src.model': '版式由 {model} 生成',
+			'src.model.hint': '本页各区块由 {model} 依据文件夹内容描述生成，而非逐份读取原始记录。引用数据前请与源文件核对。',
 			'kind.L': '函件',
 			'kind.M': '会议',
 			'kind.D': '缺陷',
@@ -3328,6 +3340,14 @@ function contractList(data) {
 			return t('src.folder');
 		}
 
+		function modelName(value) {
+			/* A route reads 'provider/model', and the provider is the part a reader
+			   already knows: the chip has to say which model, not which vendor. */
+			var text = String(value || '');
+			var cut = text.lastIndexOf('/');
+			return cut >= 0 && cut < text.length - 1 ? text.slice(cut + 1) : text;
+		}
+
 		function SourceBar(props) {
 			var active = props.active;
 			var busy = props.busy;
@@ -3366,12 +3386,23 @@ function contractList(data) {
 							title: t('src.found.hint')
 						}, t('src.found', { n: found.length }))
 						: null),
+				/* Which model described the layout, when one did. The page's shape
+				   is that model's reading of the folder, and a reader who disagrees
+				   with it needs to know who to blame. */
+				isFolder && active.model
+					? h('span', { className: 'epc-src-model', title: t('src.model.hint', { model: active.model }) }, t('src.model', { model: modelName(active.model) }))
+					: null,
 				h('span', { className: 'grow' }),
 				busy ? null : h('button', {
 					className: 'epc-btn',
 					onClick: props.onPick,
 					title: t('src.pick.hint')
 				}, t('src.pick')),
+				busy ? null : h('button', {
+					className: 'epc-btn',
+					onClick: props.onAnalyze,
+					title: t('src.analyze.hint')
+				}, t('src.analyze')),
 				!busy && isFolder ? h('button', {
 					className: 'epc-btn',
 					onClick: props.onReset,
@@ -3460,7 +3491,7 @@ function contractList(data) {
 			   drop the cached parse and reload. Reading a real project takes a
 			   minute or two, so the wait is a poll of /state rather than one long
 			   request that a proxy could time out. */
-			function pickFolder() {
+			function chooseFolder(url) {
 				var workspace = typeof props.ctx.get === 'function' ? props.ctx.get('uiWorkspace') : null;
 				if (!workspace || typeof workspace.pickDirectory !== 'function') {
 					setSourceError(t('src.no.picker'));
@@ -3471,13 +3502,24 @@ function contractList(data) {
 					if (!folder) return null;
 					setReading(true);
 					setReadProgress(t('src.reading'));
-					return postJson(FOLDER_URL, { folder: folder }).then(function () {
+					return postJson(url, { folder: folder }).then(function () {
 						return waitForBuild(folder, 0);
 					});
 				}).catch(function (err) {
 					setReading(false);
 					setSourceError(String(err && err.message ? err.message : err));
 				});
+			}
+
+			function pickFolder() {
+				chooseFolder(FOLDER_URL);
+			}
+
+			/* The reader could not make sense of the folder, or the reader's answer
+			   was thin and the user wants the model's instead. Same wait, different
+			   route: the host does the describing and asking. */
+			function analyzeFolder() {
+				chooseFolder(ANALYZE_URL);
 			}
 
 			function waitForBuild(folder, tries) {
@@ -3487,6 +3529,7 @@ function contractList(data) {
 						var line = String(b.progress).split(/\r?\n/).filter(function (s) { return s.trim() !== ''; });
 						if (line.length > 0) setReadProgress(line[line.length - 1].trim().slice(0, 120));
 					}
+					if (b && b.phase === 'model') setReadProgress(t('src.analyze.wait'));
 					if (b && b.status === 'running' && tries < 600) {
 						return new Promise(function (resolve) { setTimeout(resolve, 1000); })
 							.then(function () { return waitForBuild(folder, tries + 1); });
@@ -3691,6 +3734,7 @@ function contractList(data) {
 								notesOpen: notesOpen,
 								onToggleNotes: function () { setNotesOpen(function (v) { return !v; }); },
 								onPick: pickFolder,
+								onAnalyze: analyzeFolder,
 								onReset: resetSource
 							}),
 							notesOpen ? h(NoteList, { notes: readNotes, found: readFound }) : null),

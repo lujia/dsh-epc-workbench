@@ -184,6 +184,49 @@ the same sheet. A workbook that openpyxl cannot open is reported and skipped; it
 the build. Everything that was not read is listed for the reader, so an empty card is never
 mistaken for a zero.
 
+Column order is a preference too. The payment register and the defect register are read
+through their header row when one can be found in the first 25 rows: the reader maps each
+field it wants (`invoice date`, `ipc amount`, `payment date`, `discipl…`, `target date`, …)
+to whichever column carries that heading, so a register whose columns were arranged another
+way still reads. When no header row is recognisable the reader keeps the positional layout it
+was written against, and when the header puts a field somewhere unusual the strip says so
+(`the columns are not in the usual order`).
+
+## Reading a folder with the model
+
+When neither the configured paths nor the fallbacks recognise anything — a folder whose
+records are shaped differently rather than merely named differently — the host can ask the
+model the harness is running what the folder holds, and extract against that answer.
+
+```bash
+python tools/inventory.py <project-folder> out/inventory.json   # describe the folder
+```
+
+`tools/inventory.py` writes a bounded description: per-directory file counts and a few
+sample names, the header block of a spread of markdown documents, and the sheet names plus
+first rows of a spread of workbooks. Ceilings (`MAX_WORKBOOKS`, `MAX_MARKDOWN`, …) keep it
+inside a prompt, and the document records `truncated` / `dropped` rather than silently
+losing half the corpus.
+
+`analyze.js` sends that description to `ctx.get('llm').stream(...)` on the route
+`ctx.get('agentDefaultModel').currentSelection()` returns — the provider, model and
+reasoning effort the conversation is already using — and reads back a configuration object.
+`tidy()` then repairs only the answer's *formatting* (paths relative and forward-slashed,
+numbers finite and positive, contract ids that exist) and the extractor runs normally, so
+every figure on the page still comes out of a file.
+
+It runs automatically when the deterministic reader recognised nothing, and can be forced
+from the interface:
+
+```
+POST /plugins/epc-workbench/analyze   {"folder": "<absolute path>"}
+```
+
+The same polling contract as `/folder`. The strip reports the outcome either way: a
+successful analysis shows `layout by <model>`, and a failure shows the model's own reason
+(`the model could not name a contract in this folder…`) rather than an empty page. Nothing
+is invented: when the model cannot read the folder, the page says which parts are missing.
+
 ## Reading a folder from the interface
 
 `POST /plugins/epc-workbench/folder` with `{"folder": "<absolute path>"}` starts a

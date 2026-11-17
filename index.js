@@ -13,15 +13,21 @@
  * folder, and serves those two files instead — the project folder is only ever
  * read.
  *
+ * When the deterministic reader finds nothing it recognises — a folder laid out
+ * some other way — the host asks the model the harness is already running to work
+ * out what the folder holds (analyze.js) and extracts against that answer instead.
+ *
  * Routes, all same-origin under /plugins/epc-workbench:
  *
  *   GET  /data                    the dataset the client renders
  *   GET  /index                   the search index that belongs to it
  *   GET  /state                   what is being served, and how the build is going
  *   POST /folder   {folder}        read that folder; answers as soon as it starts
+ *   POST /analyze  {folder}        read it with the model even if the reader could
  *   POST /reset                   go back to the bundled dataset
  */
 import { spawn } from 'node:child_process';
+import { analyzeFolder } from './analyze.js';
 import { access, copyFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -40,6 +46,7 @@ const ROUTE_DATA = `${ROUTE_PREFIX}/data`;
 const ROUTE_INDEX = `${ROUTE_PREFIX}/index`;
 const ROUTE_STATE = `${ROUTE_PREFIX}/state`;
 const ROUTE_FOLDER = `${ROUTE_PREFIX}/folder`;
+const ROUTE_ANALYZE = `${ROUTE_PREFIX}/analyze`;
 const ROUTE_RESET = `${ROUTE_PREFIX}/reset`;
 
 export const inject = ['webServer'];
@@ -131,15 +138,18 @@ const active = {
 	builtAt: null,
 	notes: [],
 	found: [],
+	model: null,
 };
 
 const build = {
 	status: 'idle',
+	phase: 'idle',
 	folder: null,
 	startedAt: null,
 	finishedAt: null,
 	error: null,
 	log: '',
+	model: null,
 };
 
 /** Serialised builds: two people clicking twice must not write the same files. */
@@ -167,7 +177,7 @@ async function saveState() {
 		await mkdir(cacheRoot(), { recursive: true });
 		await writeFile(
 			await stateFile(),
-			JSON.stringify({ dir: active.dir, source: active.source, folder: active.folder, builtAt: active.builtAt, notes: active.notes, found: active.found }, null, 1),
+			JSON.stringify({ dir: active.dir, source: active.source, folder: active.folder, builtAt: active.builtAt, notes: active.notes, found: active.found, model: active.model }, null, 1),
 			'utf8',
 		);
 	} catch {
@@ -187,6 +197,7 @@ async function restoreState() {
 			active.builtAt = typeof raw.builtAt === 'string' ? raw.builtAt : null;
 			active.notes = Array.isArray(raw.notes) ? raw.notes : [];
 			active.found = Array.isArray(raw.found) ? raw.found : [];
+			active.model = typeof raw.model === 'string' ? raw.model : null;
 		}
 	} catch {
 		/* no previous build, or it was cleaned up: the bundled dataset is the default */
@@ -263,26 +274,12 @@ function run(argv, cwd) {
 	});
 }
 
-/** The python scripts that do the reading, and the folder they read. */
-async function runBuild(folder) {
-	const python = await findPython();
-	const outDir = join(cacheRoot(), createHash('sha1').update(folder).digest('hex').slice(0, 12));
-	await mkdir(outDir, { recursive: true });
-	const cfgPath = join(outDir, 'workbench.config.json');
-
-	build.log = '';
-	const discover = await run(
-		[python, join(ROOT, 'tools', 'discover_folder.py'), folder, cfgPath, join(outDir, 'data')],
-		ROOT,
-	);
-	build.log += discover.stdout + discover.stderr;
-	if (discover.code !== 0) {
-		throw new Error(`discovery failed (exit ${discover.code}): ${(discover.stderr || discover.stdout).trim().slice(-400)}`);
-	}
-	const notesLine = discover.stdout.split(/\r?\n/).find((line) => line.startsWith('NOTES '));
-	const foundLine = discover.stdout.split(/\r?\n/).find((line) => line.startsWith('FOUND '));
+/** The two JSON lines discovery prints, and the notes they carry. */
+function parseDiscoveryNotes(stdout) {
 	let notes = [];
 	let found = [];
+	const notesLine = stdout.split(/\r?\n/).find((line) => line.startsWith('NOTES '));
+	const foundLine = stdout.split(/\r?\n/).find((line) => line.startsWith('FOUND '));
 	if (notesLine) {
 		try {
 			notes = JSON.parse(notesLine.slice(6));
@@ -297,26 +294,18 @@ async function runBuild(folder) {
 			found = [];
 		}
 	}
+	return { notes, found };
+}
 
-	const extract = await run([python, join(ROOT, 'tools', 'build_data.py'), cfgPath], ROOT);
-	build.log += extract.stdout + extract.stderr;
-	if (extract.code !== 0) {
-		// A run that read most of the corpus and then tripped over one workbook is a
-		// partial result, not a failed read: show whatever was written rather than
-		// leaving the reader looking at the previous project.
-		const partial = datasetPaths(join(outDir, 'data'));
-		if (await exists(partial.data)) {
-			notes.push(`the reader stopped early: ${(extract.stderr || extract.stdout).trim().slice(-300)}`);
-			return { dir: join(outDir, 'data'), notes, found, log: extract.stdout, partial: true };
-		}
-		throw new Error(`extraction failed (exit ${extract.code}): ${(extract.stderr || extract.stdout).trim().slice(-400)}`);
-	}
-	// The extractor reports what it could not read on its last lines; those belong
-	// beside the discovery notes so the page can name the empty sections. Discovery
-	// and the extractor often say the same thing about the same record, so the
-	// labels are stripped before comparing or the reader sees it twice.
+/**
+ * The extractor reports what it could not read on its last lines; those belong
+ * beside the discovery notes so the page can name the empty sections. Discovery
+ * and the extractor often say the same thing about the same record, so the labels
+ * are stripped before comparing or the reader sees it twice.
+ */
+function mergeExtractorNotes(stdout, notes) {
 	const seen = new Set(notes.map((n) => n.replace(/^reading the folder:\s*/i, '').trim()));
-	for (const line of extract.stdout.split(/\r?\n/)) {
+	for (const line of String(stdout || '').split(/\r?\n/)) {
 		const hit = /^\s*-\s+(.*)$/.exec(line);
 		if (!hit) continue;
 		const text = hit[1].trim();
@@ -326,16 +315,158 @@ async function runBuild(folder) {
 			notes.push(text);
 		}
 	}
+	return notes;
+}
 
-	const built = join(outDir, 'data');
-	const paths = datasetPaths(built);
+/** One extraction run against a config that has already been written. */
+async function runExtractor(python, cfgPath, outDir) {
+	build.phase = 'extracting';
+	const result = await run([python, join(ROOT, 'tools', 'build_data.py'), cfgPath], ROOT);
+	build.log += result.stdout + result.stderr;
+	return { result, built: join(outDir, 'data') };
+}
+
+/**
+ * Did the extraction actually produce a page?
+ *
+ * A folder holding nothing the reader recognises still extracts cleanly — it just
+ * writes a dataset whose every section is empty, which is the page the user was
+ * looking at when they reported this as a failure. Counting the sections is what
+ * separates 'this project has no defects' from 'this folder is not the corpus'.
+ */
+async function datasetIsEmpty(dir) {
+	try {
+		const data = await loadJson(datasetPaths(dir).data);
+		const letters = (data.letters && data.letters.total) || 0;
+		const meetings = (data.meetings && data.meetings.total) || 0;
+		const defects = (data.defects && data.defects.total) || 0;
+		const ipcs = (data.payments && Array.isArray(data.payments.ipcs) && data.payments.ipcs.length) || 0;
+		const main = data.mainContract ? 1 : 0;
+		const retention = Object.keys(data.retention || {}).length;
+		return letters + meetings + defects + ipcs + main + retention === 0;
+	} catch {
+		return true;
+	}
+}
+
+/**
+ * Ask the model what this folder holds, and write the configuration it answers
+ * with. Returns `{ config, model, notes }`: `config` is null when the model could
+ * not describe the folder, and the caller then keeps whatever the deterministic
+ * reader produced.
+ */
+async function analyzeConfig(ctx, python, folder, cfgPath, outDir) {
+	build.phase = 'inventory';
+	build.log += `describing ${folder} for the model\n`;
+	const inventoryPath = join(outDir, 'inventory.json');
+	const read = await run([python, join(ROOT, 'tools', 'inventory.py'), folder, inventoryPath], ROOT);
+	build.log += read.stdout + read.stderr;
+	if (read.code !== 0) {
+		return {
+			config: null,
+			model: null,
+			notes: [`the folder could not be described for the model: ${(read.stderr || read.stdout).trim().slice(-300)}`],
+		};
+	}
+	let inventory;
+	try {
+		inventory = JSON.parse(await readFile(inventoryPath, 'utf8'));
+	} catch (error) {
+		return { config: null, model: null, notes: [`the folder description could not be read: ${safeMessage(error)}`] };
+	}
+
+	build.phase = 'model';
+	build.log += 'asking the model what this folder holds\n';
+	const analysis = await analyzeFolder(ctx, folder, inventory);
+	if (!analysis.config) return analysis;
+
+	// The picked folder is the root and the cache is the output, whatever the model
+	// said: an answer that names a path outside the folder still cannot read one.
+	analysis.config.sources = analysis.config.sources || {};
+	analysis.config.sources.root = folder;
+	analysis.config.sources.out = join(outDir, 'data');
+	analysis.config._notes = (analysis.notes || []).slice();
+	await writeFile(cfgPath, JSON.stringify(analysis.config, null, 1), 'utf8');
+	build.log += `the configuration was written by ${analysis.model}\n`;
+	return analysis;
+}
+
+/** The python scripts that do the reading, and the folder they read. */
+async function runBuild(ctx, folder, options = {}) {
+	const python = await findPython();
+	const outDir = join(cacheRoot(), createHash('sha1').update(folder).digest('hex').slice(0, 12));
+	await mkdir(outDir, { recursive: true });
+	const cfgPath = join(outDir, 'workbench.config.json');
+	const force = options.mode === 'model';
+	build.log = '';
+	build.model = null;
+
+	let notes = [];
+	let found = [];
+	let model = null;
+
+	if (!force) {
+		build.phase = 'discovering';
+		const discover = await run(
+			[python, join(ROOT, 'tools', 'discover_folder.py'), folder, cfgPath, join(outDir, 'data')],
+			ROOT,
+		);
+		build.log += discover.stdout + discover.stderr;
+		if (discover.code !== 0) {
+			throw new Error(`discovery failed (exit ${discover.code}): ${(discover.stderr || discover.stdout).trim().slice(-400)}`);
+		}
+		({ notes, found } = parseDiscoveryNotes(discover.stdout));
+
+		const first = await runExtractor(python, cfgPath, outDir);
+		if (first.result.code !== 0) {
+			// A run that read most of the corpus and then tripped over one workbook is
+			// a partial result, not a failed read: show whatever was written rather than
+			// leaving the reader looking at the previous project.
+			if (await exists(datasetPaths(first.built).data)) {
+				notes.push(`the reader stopped early: ${(first.result.stderr || first.result.stdout).trim().slice(-300)}`);
+				return { dir: first.built, notes, found, model, partial: true };
+			}
+			throw new Error(`extraction failed (exit ${first.result.code}): ${(first.result.stderr || first.result.stdout).trim().slice(-400)}`);
+		}
+		mergeExtractorNotes(first.result.stdout, notes);
+		// Two ways to know the reader did not understand this folder: it recognised
+		// nothing at all (no note about any record it found), or it recognised
+		// something and every section still came out empty. Either way the page the
+		// user would see is the one they reported as a failure, so ask the model
+		// before giving up on the folder.
+		if (found.length > 0 && !(await datasetIsEmpty(first.built))) {
+			return { dir: first.built, notes, found, model };
+		}
+		build.log += 'nothing here matched the reader, asking the model\n';
+	}
+
+	const analysis = await analyzeConfig(ctx, python, folder, cfgPath, outDir);
+	model = analysis.model;
+	for (const note of analysis.notes || []) if (!notes.includes(note)) notes.push(note);
+	if (!analysis.config) {
+		if (force) throw new Error((analysis.notes || []).join('; ') || 'the model could not describe this folder');
+		return { dir: join(outDir, 'data'), notes, found, model };
+	}
+
+	const second = await runExtractor(python, cfgPath, outDir);
+	if (second.result.code !== 0) {
+		if (await exists(datasetPaths(second.built).data)) {
+			notes.push(`the reader stopped early: ${(second.result.stderr || second.result.stdout).trim().slice(-300)}`);
+			return { dir: second.built, notes, found, model, partial: true };
+		}
+		throw new Error(`extraction failed (exit ${second.result.code}): ${(second.result.stderr || second.result.stdout).trim().slice(-400)}`);
+	}
+	mergeExtractorNotes(second.result.stdout, notes);
+	found.push(`the layout was described by ${model}`);
+
+	const paths = datasetPaths(second.built);
 	if (!(await exists(paths.data)) || !(await exists(paths.index))) {
 		throw new Error('the extractor finished without writing a dataset');
 	}
-	return { dir: built, notes, found, log: extract.stdout };
+	return { dir: second.built, notes, found, model };
 }
 
-async function startBuild(folder) {
+async function startBuild(ctx, folder, options = {}) {
 	if (building !== null) return building;
 	build.status = 'running';
 	build.folder = folder;
@@ -343,19 +474,23 @@ async function startBuild(folder) {
 	build.finishedAt = null;
 	build.error = null;
 	build.log = '';
+	build.phase = options.mode === 'model' ? 'inventory' : 'discovering';
 	building = (async () => {
 		try {
-			const result = await runBuild(folder);
+			const result = await runBuild(ctx, folder, options);
 			active.dir = result.dir;
 			active.source = 'folder';
 			active.folder = folder;
 			active.builtAt = new Date().toISOString();
 			active.notes = result.notes;
 			active.found = result.found;
+			active.model = result.model || null;
 			// Drop every cached parse: the same path can be rebuilt with new numbers.
 			cache.clear();
 			build.status = 'ready';
-			build.log = result.log;
+			build.phase = 'done';
+			build.model = result.model || null;
+			build.log = build.log.slice(-4000);
 			await saveState();
 		} catch (error) {
 			build.status = 'error';
@@ -380,19 +515,22 @@ function handleState(req, res) {
 			builtAt: active.builtAt,
 			notes: active.notes,
 			found: active.found,
+			model: active.model,
 		},
 		build: {
 			status: build.status,
+			phase: build.phase,
 			folder: build.folder,
 			startedAt: build.startedAt,
 			finishedAt: build.finishedAt,
 			error: build.error,
+			model: build.model,
 			progress: build.log.slice(-1200),
 		},
 	});
 }
 
-async function handleFolder(req, res) {
+async function handleFolder(ctx, req, res, forcedMode) {
 	if (req.method !== 'POST') {
 		json(res, 405, { error: 'method not allowed' });
 		return;
@@ -430,8 +568,9 @@ async function handleFolder(req, res) {
 	}
 	// The answer is the start of the work, not its end: reading a real project
 	// takes a minute or two, and the page polls /state for the result.
-	void startBuild(folder);
-	json(res, 202, { status: 'running', folder });
+	const wantsModel = forcedMode === 'model' || body.mode === 'model';
+	void startBuild(ctx, folder, { mode: wantsModel ? 'model' : 'reader' });
+	json(res, 202, { status: 'running', folder, mode: wantsModel ? 'model' : 'reader' });
 }
 
 async function handleReset(req, res) {
@@ -452,11 +591,14 @@ async function handleReset(req, res) {
 	// The last build's outcome belongs to the folder that was just dropped; keeping
 	// it would leave the page reporting a finished read of a project it no longer shows.
 	build.status = 'idle';
+	build.phase = 'idle';
 	build.folder = null;
 	build.startedAt = null;
 	build.finishedAt = null;
 	build.error = null;
 	build.log = '';
+	build.model = null;
+	active.model = null;
 	cache.clear();
 	await saveState();
 	json(res, 200, { status: 'ok', source: 'bundled' });
@@ -474,7 +616,14 @@ export function apply(ctx) {
 					kind: 'exact',
 					path: ROUTE_FOLDER,
 					handler: (req, res) => {
-						void handleFolder(req, res);
+						void handleFolder(ctx, req, res, 'reader');
+					},
+				}),
+				webCtx.webServer.register({
+					kind: 'exact',
+					path: ROUTE_ANALYZE,
+					handler: (req, res) => {
+						void handleFolder(ctx, req, res, 'model');
 					},
 				}),
 				webCtx.webServer.register({

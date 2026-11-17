@@ -197,6 +197,10 @@ const targets = only ? [only] : VIEWS
 const folderMode = flags.indexOf('folder') >= 0
 const gapsMode = flags.indexOf('gaps') >= 0
 const notesOpen = gapsMode || flags.indexOf('notes') >= 0
+// 'model' renders the strip after the layout was described by the running model,
+// which is the state a reader meets on a folder the deterministic reader cannot
+// recognise at all.
+const modelMode = flags.indexOf('model') >= 0
 
 function readSource() {
   if (!folderMode && !gapsMode) return { active: null, build: null }
@@ -213,6 +217,7 @@ function readSource() {
       found: ['payment register: IPCs/CYE. Interim Payment Records - 260929.xlsx (sheets ipc=Interim Payment to ADVE, employer=Interim Payment from CEB, monthly=Monthly Interim Payment Records)',
               'currencies named by the certificate header: USD, LKR, JPY',
               'main contract number: CEB/DGM/GP/2019/01'],
+      model: modelMode ? 'workbuddy-global/deepseek-v4.1-flash' : null,
     },
     build: { status: 'ready', folder: 'D:/projects/coal-yard', error: null, progress: '' },
   }
@@ -267,7 +272,7 @@ html,body{margin:0;height:100%;background:var(--dsw-alias-bg-base);color:var(--d
 </style>
 <style>${CSS}</style></head>
 <body><div id="host">${html}</div><div class="pv-label">${theme}/${view}</div></body></html>`
-  const mode = gapsMode ? '.gaps' : (folderMode ? '.folder' : '')
+  const mode = modelMode ? '.model' : (gapsMode ? '.gaps' : (folderMode ? '.folder' : ''))
   const file = join(OUT, view + (view === 'commercial' && (tabFlag || subScope) ? '.' + (subScope ? 'sub' : 'main') + '.' + (tabFlag || (subScope ? 'ipcs' : 'ipas')) : (subScope ? '.sub' : '')) + mode + (LANG === 'zh' ? '.zh' : '') + (theme === 'light' ? '.light' : '') + '.html')
   await writeFile(file, page, 'utf8')
   console.log('wrote ' + file + ' (' + page.length + ' B)')

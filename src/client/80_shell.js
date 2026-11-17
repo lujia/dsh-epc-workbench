@@ -154,6 +154,14 @@
 			return t('src.folder');
 		}
 
+		function modelName(value) {
+			/* A route reads 'provider/model', and the provider is the part a reader
+			   already knows: the chip has to say which model, not which vendor. */
+			var text = String(value || '');
+			var cut = text.lastIndexOf('/');
+			return cut >= 0 && cut < text.length - 1 ? text.slice(cut + 1) : text;
+		}
+
 		function SourceBar(props) {
 			var active = props.active;
 			var busy = props.busy;
@@ -192,12 +200,23 @@
 							title: t('src.found.hint')
 						}, t('src.found', { n: found.length }))
 						: null),
+				/* Which model described the layout, when one did. The page's shape
+				   is that model's reading of the folder, and a reader who disagrees
+				   with it needs to know who to blame. */
+				isFolder && active.model
+					? h('span', { className: 'epc-src-model', title: t('src.model.hint', { model: active.model }) }, t('src.model', { model: modelName(active.model) }))
+					: null,
 				h('span', { className: 'grow' }),
 				busy ? null : h('button', {
 					className: 'epc-btn',
 					onClick: props.onPick,
 					title: t('src.pick.hint')
 				}, t('src.pick')),
+				busy ? null : h('button', {
+					className: 'epc-btn',
+					onClick: props.onAnalyze,
+					title: t('src.analyze.hint')
+				}, t('src.analyze')),
 				!busy && isFolder ? h('button', {
 					className: 'epc-btn',
 					onClick: props.onReset,
@@ -286,7 +305,7 @@
 			   drop the cached parse and reload. Reading a real project takes a
 			   minute or two, so the wait is a poll of /state rather than one long
 			   request that a proxy could time out. */
-			function pickFolder() {
+			function chooseFolder(url) {
 				var workspace = typeof props.ctx.get === 'function' ? props.ctx.get('uiWorkspace') : null;
 				if (!workspace || typeof workspace.pickDirectory !== 'function') {
 					setSourceError(t('src.no.picker'));
@@ -297,13 +316,24 @@
 					if (!folder) return null;
 					setReading(true);
 					setReadProgress(t('src.reading'));
-					return postJson(FOLDER_URL, { folder: folder }).then(function () {
+					return postJson(url, { folder: folder }).then(function () {
 						return waitForBuild(folder, 0);
 					});
 				}).catch(function (err) {
 					setReading(false);
 					setSourceError(String(err && err.message ? err.message : err));
 				});
+			}
+
+			function pickFolder() {
+				chooseFolder(FOLDER_URL);
+			}
+
+			/* The reader could not make sense of the folder, or the reader's answer
+			   was thin and the user wants the model's instead. Same wait, different
+			   route: the host does the describing and asking. */
+			function analyzeFolder() {
+				chooseFolder(ANALYZE_URL);
 			}
 
 			function waitForBuild(folder, tries) {
@@ -313,6 +343,7 @@
 						var line = String(b.progress).split(/\r?\n/).filter(function (s) { return s.trim() !== ''; });
 						if (line.length > 0) setReadProgress(line[line.length - 1].trim().slice(0, 120));
 					}
+					if (b && b.phase === 'model') setReadProgress(t('src.analyze.wait'));
 					if (b && b.status === 'running' && tries < 600) {
 						return new Promise(function (resolve) { setTimeout(resolve, 1000); })
 							.then(function () { return waitForBuild(folder, tries + 1); });
@@ -517,6 +548,7 @@
 								notesOpen: notesOpen,
 								onToggleNotes: function () { setNotesOpen(function (v) { return !v; }); },
 								onPick: pickFolder,
+								onAnalyze: analyzeFolder,
 								onReset: resetSource
 							}),
 							notesOpen ? h(NoteList, { notes: readNotes, found: readFound }) : null),

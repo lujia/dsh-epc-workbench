@@ -189,6 +189,7 @@
 /* Everything was found: the same pill, in the colour that means "no gap". */
 .epc-src-notes.ok{color:var(--epc-acc2,var(--epc-accent));border-color:color-mix(in srgb,var(--epc-acc2,var(--epc-accent)) 45%,var(--epc-line2))}
 .epc-src-notes.ok.on{border-color:var(--epc-acc2,var(--epc-accent))}
+.epc-src-model{font:600 10px/1 var(--epc-mono);letter-spacing:.02em;color:var(--epc-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:34ch;padding:4px 2px}
 .epc-src .grow{flex:1 1 auto}
 .epc-notes{margin:7px 0 0;padding:11px 13px 12px;border:1px solid var(--epc-line2);border-radius:7px;background:var(--epc-panel2);font-size:11.5px;color:var(--epc-muted)}
 .epc-notes-k{font:600 9.5px/1 var(--epc-mono);letter-spacing:.1em;text-transform:uppercase;color:var(--epc-dim);margin-bottom:7px}

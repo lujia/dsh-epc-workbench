@@ -531,29 +531,41 @@ def scan_defects():
              % os.path.basename(p))
         wb.close()
         return []
+    # The defect sheet is read by its header too: a punch list written for another
+    # project orders its columns differently and often starts its header on row 2.
+    heads = header_map(ws, "defects")
+    if header_differs("defects", heads):
+        warn("defect register: the columns are not in the usual order, "
+             "so they were read from the header row")
     rows = []
     for i, r in enumerate(ws.iter_rows(max_row=1600, values_only=True)):
         if i < 2:
             continue
         if not r or all(c is None for c in r):
             continue
-        g = lambda k: r[k] if k < len(r) else None
-        tgt = iso_date(g(13))
-        rows.append({
+        if heads:
+            g = lambda k: _cell(r, heads.get(k))
+        else:
+            g = lambda k: r[k] if k < len(r) else None
+        tgt = iso_date(g("target"))
+        row = {
             # Column 0 is the defect sequence; column 8 is the shared photo/doc ref,
             # which repeats for every defect recorded on the same photograph.
-            "no": str(g(0) or "").strip(),
-            "ref": str(g(8) or "").strip(),
-            "disc": str(g(3) or "").strip(),
-            "loc": str(g(9) or "").strip()[:60],
-            "desc": str(g(10) or "").strip()[:220],
-            "cat": str(g(11) or "").strip(),
-            "act": str(g(12) or "").strip()[:140],
+            "no": str(g("no") or "").strip(),
+            "ref": str(g("ref") or "").strip(),
+            "disc": str(g("disc") or "").strip(),
+            "loc": str(g("loc") or "").strip()[:60],
+            "desc": str(g("desc") or "").strip()[:220],
+            "cat": str(g("cat") or "").strip(),
+            "act": str(g("act") or "").strip()[:140],
             "target": tgt,
-            "status": str(g(14) or "").strip(),
-            "days": num(g(15)),
-            "prio": str(g(16) or "").strip(),
-        })
+            "status": str(g("status") or "").strip(),
+            "days": num(g("days")),
+            "prio": str(g("prio") or "").strip(),
+        }
+        if not row["desc"] and not row["disc"]:
+            continue
+        rows.append(row)
     wb.close()
     if not rows:
         warn("defect register: %s opened but no row survived the header, so the "
@@ -591,6 +603,131 @@ def aggregate_defects(rows):
 
 
 # --------------------------------------------------------------------------- payments
+# Every register this workbench reads was written by a person in a spreadsheet, and
+# the column order differs between projects — and between two files in the same
+# project. The positional layout below is what the first corpus used; the header map
+# is what makes the reader work on a register whose columns were arranged otherwise.
+REGISTER_COLUMNS = {
+    "ipc": {
+        "date": (r"^invoice\s*date", r"^date"),
+        "no": (r"^invoice\s*no", r"^invoice\s*number"),
+        "sn": (r"^s\.?\s*n\.?$", r"^sn$", r"^serial"),
+        "certified": (r"certified",),
+        "amt": (r"^ipc\s*amount$", r"^amount$", r"^ipc\s*amount\s*\(?lkr", r"^amount\s*\(?lkr"),
+        "sscl": (r"sscl",),
+        "vat": (r"^vat",),
+        "sub": (r"^sub[\s\-]*total\s*\(?lkr", r"^sub[\s\-]*total$"),
+        "payDate": (r"^payment\s*date", r"^paid\s*date", r"^date\s*paid"),
+        "fxLkr": (r"usd\s*/\s*lkr", r"lkr\s*rate"),
+        "fxRmb": (r"usd\s*/\s*rmb", r"rmb\s*rate"),
+        "rmb": (r"sub[\s\-]*total\s*\(?rmb", r"^amount\s*\(?rmb"),
+        "note": (r"^note", r"^remarks?"),
+    },
+    "employer": {
+        "sn": (r"^s\.?\s*n\.?$", r"^sn$", r"^serial"),
+        "date": (r"^invoice\s*date", r"^date"),
+        "no": (r"^invoice\s*no", r"^invoice\s*number"),
+        "amt": (r"^amount$", r"^amount\s*\(?lkr", r"^ipc\s*amount$"),
+        "sscl": (r"sscl",),
+        "vat": (r"^vat",),
+        "tax": (r"total\s*tax",),
+        "total": (r"^total\s*amount", r"^total$"),
+        "fxRmb": (r"exchange\s*rate",),
+        "rmb": (r"amount\s*in\s*rmb", r"rmb"),
+        "note": (r"^remarks?", r"^note"),
+        "recv": (r"actual\s*received", r"^received$"),
+        "recvDate": (r"receive?\s*date", r"^received\s*on"),
+    },
+    "monthly": {
+        "date": (r"^month", r"^date", r"period"),
+        "usd": (r"^usd", r"us\$"),
+        "lkr": (r"^lkr",),
+        "vat": (r"^vat",),
+    },
+    "defects": {
+        # 'Ref No.' is the sequence in most registers; the shared photo/document
+        # reference is the column headed 'Filename' or 'Reference'.
+        "no": (r"^no\.?$", r"^ref\s*no", r"^s\.?\s*n\.?$", r"^#", r"^item\s*no"),
+        "ref": (r"^filename", r"^file\s*/", r"^alternat", r"^reference", r"^doc\s*ref", r"photo"),
+        "disc": (r"discipl", r"deciplin", r"^trade", r"^category\s*of\s*work"),
+        "loc": (r"location", r"^area", r"^level"),
+        "desc": (r"descript", r"^defect", r"^observation"),
+        "cat": (r"^categor", r"^type"),
+        "act": (r"^action", r"^corrective", r"^rectif"),
+        "target": (r"^target", r"^due", r"^deadline"),
+        "status": (r"^status", r"^state"),
+        "days": (r"^days", r"^age", r"^overdue"),
+        "prio": (r"^priorit", r"^severity", r"^grade"),
+    },
+}
+
+
+def _norm_head(value):
+    text = str(value or "").strip().lower()
+    text = re.sub(r"\s+", " ", text)
+    return text[:60]
+
+
+def header_map(ws, kind, max_row=25):
+    """Map a register's columns by the words in its header, not by their position.
+
+    Returns ``{field: column index}`` when a row in the first ``max_row`` rows names
+    at least three of the fields this reader wants, and ``{}`` when no row reads like
+    a header — in which case the caller keeps the positional layout, so a register
+    that has no header at all still reads the way it always did.
+    """
+    wanted = REGISTER_COLUMNS.get(kind) or {}
+    if not wanted:
+        return {}
+    best = {}
+    for row in ws.iter_rows(max_row=max_row, values_only=True):
+        if not row:
+            continue
+        heads = [_norm_head(c) for c in row]
+        found = {}
+        for field, patterns in wanted.items():
+            if field in found:
+                continue
+            for i, head in enumerate(heads):
+                if not head or i in found.values():
+                    continue
+                if any(re.search(p, head) for p in patterns):
+                    found[field] = i
+                    break
+        if len(found) > len(best):
+            best = found
+        if len(found) >= 6:
+            break
+    return best if len(best) >= 3 else {}
+
+
+# The column order the reader assumes when a sheet has no header row at all.
+POSITIONAL = {
+    "ipc": {"date": 0, "no": 1, "sn": 2, "certified": 3, "amt": 4, "sscl": 5, "vat": 6,
+            "sub": 7, "payDate": 8, "fxLkr": 9, "fxRmb": 10, "rmb": 11, "note": 12},
+    "employer": {"sn": 0, "date": 1, "no": 2, "amt": 3, "sscl": 4, "vat": 5, "tax": 6,
+                 "total": 7, "fxRmb": 8, "rmb": 9, "note": 10, "recv": 11, "recvDate": 12},
+    "monthly": {"date": 0, "usd": 1, "lkr": 2, "vat": 3},
+    "defects": {"no": 0, "disc": 3, "ref": 8, "loc": 9, "desc": 10, "cat": 11, "act": 12,
+                "target": 13, "status": 14, "days": 15, "prio": 16},
+}
+
+
+def header_differs(kind, heads):
+    """True when the header row puts a field somewhere other than the default layout."""
+    if not heads:
+        return False
+    base = POSITIONAL.get(kind) or {}
+    return any(base.get(field) != index for field, index in heads.items())
+
+
+def _cell(row, index):
+    """One cell by column index, or None when the row is shorter than the sheet."""
+    if index is None or index < 0 or index >= len(row):
+        return None
+    return row[index]
+
+
 def _register_path():
     """The master payment register workbook, if the project has one.
 
@@ -650,13 +787,26 @@ def load_monthly():
         wb.close()
         return []
     rows = []
+    heads = header_map(ws, "monthly")
+    if header_differs("monthly", heads):
+        warn("monthly payment record: the columns are not in the usual order, "
+             "so they were read from the header row")
     for r in ws.iter_rows(max_row=90, values_only=True):
-        if not r or r[0] is None:
+        if not r:
             continue
-        d = iso_date(r[0])
+        date_cell = _cell(r, heads["date"]) if heads else r[0]
+        if date_cell is None:
+            continue
+        d = iso_date(date_cell)
         if not d:
             continue
-        rows.append({"date": d, "usd": num(r[1]), "lkr": num(r[2]), "vat": num(r[3])})
+        if heads:
+            usd, lkr, vat = _cell(r, heads.get("usd")), _cell(r, heads.get("lkr")), _cell(r, heads.get("vat"))
+        else:
+            usd = r[1] if len(r) > 1 else None
+            lkr = r[2] if len(r) > 2 else None
+            vat = r[3] if len(r) > 3 else None
+        rows.append({"date": d, "usd": num(usd), "lkr": num(lkr), "vat": num(vat)})
     wb.close()
     return rows
 
@@ -677,27 +827,59 @@ def load_ipcs():
         warn("subcontract payment sheet: no sheet named %r or matching 'interim payment to', "
              "so the subcontract certificate list is empty" % (sheets.get("ipc") or "(none)"))
     else:
+        heads = header_map(ws, "ipc")
+        if header_differs("ipc", heads):
+            warn("subcontract payment sheet: the columns are not in the usual order, "
+                 "so they were read from the header row")
         for r in ws.iter_rows(max_row=1200, values_only=True):
-            if not r or r[2] is None:
+            if not r:
                 continue
-            sn = str(r[2]).strip()
-            amt = num(r[4])
+            if heads:
+                sn = _cell(r, heads.get("sn"))
+                amt = num(_cell(r, heads.get("amt")))
+                date_cell = _cell(r, heads.get("date"))
+            else:
+                if r[2] is None:
+                    continue
+                sn = r[2]
+                amt = num(r[4])
+                date_cell = r[0]
+            if sn is None:
+                continue
+            sn = str(sn).strip()
             if amt is None:
                 continue
-            ipcs.append({
-                "sn": sn,
-                "date": iso_date(r[0]),
-                "certified": num(r[3]),
-                "amt": amt,
-                "sscl": num(r[5]),
-                "vat": num(r[6]),
-                "sub": num(r[7]),
-                "payDate": iso_date(r[8]),
-                "fxLkr": num(r[9]),
-                "fxRmb": num(r[10]),
-                "rmb": num(r[11]),
-                "note": str(r[12] or "").strip()[:100] if len(r) > 12 else "",
-            })
+            if heads:
+                row = {
+                    "sn": sn,
+                    "date": iso_date(date_cell),
+                    "certified": num(_cell(r, heads.get("certified"))),
+                    "amt": amt,
+                    "sscl": num(_cell(r, heads.get("sscl"))),
+                    "vat": num(_cell(r, heads.get("vat"))),
+                    "sub": num(_cell(r, heads.get("sub"))),
+                    "payDate": iso_date(_cell(r, heads.get("payDate"))),
+                    "fxLkr": num(_cell(r, heads.get("fxLkr"))),
+                    "fxRmb": num(_cell(r, heads.get("fxRmb"))),
+                    "rmb": num(_cell(r, heads.get("rmb"))),
+                    "note": str(_cell(r, heads.get("note")) or "").strip()[:100],
+                }
+            else:
+                row = {
+                    "sn": sn,
+                    "date": iso_date(date_cell),
+                    "certified": num(r[3]) if len(r) > 3 else None,
+                    "amt": amt,
+                    "sscl": num(r[5]) if len(r) > 5 else None,
+                    "vat": num(r[6]) if len(r) > 6 else None,
+                    "sub": num(r[7]) if len(r) > 7 else None,
+                    "payDate": iso_date(r[8]) if len(r) > 8 else None,
+                    "fxLkr": num(r[9]) if len(r) > 9 else None,
+                    "fxRmb": num(r[10]) if len(r) > 10 else None,
+                    "rmb": num(r[11]) if len(r) > 11 else None,
+                    "note": str(r[12] or "").strip()[:100] if len(r) > 12 else "",
+                }
+            ipcs.append(row)
     employer = []
     ws = sheet_of(wb, sheets.get("employer") or "", (r"interim payment from", r"from (the )?employer",
                                                      r"employer", r"invoice"))
@@ -706,8 +888,30 @@ def load_ipcs():
             warn("employer payment sheet: no sheet named %r or matching 'interim payment from', "
                  "so the employer invoice list is empty" % sheets["employer"])
     else:
+        heads = header_map(ws, "employer")
+        if header_differs("employer", heads):
+            warn("employer payment sheet: the columns are not in the usual order, "
+                 "so they were read from the header row")
         for r in ws.iter_rows(max_row=1200, values_only=True):
-            if not r or len(r) < 4 or r[3] is None:
+            if not r:
+                continue
+            if heads:
+                amt = num(_cell(r, heads.get("amt")))
+                if amt is None:
+                    continue
+                employer.append({
+                    "date": iso_date(_cell(r, heads.get("date"))),
+                    "no": str(_cell(r, heads.get("no")) or "").strip()[:40],
+                    "amt": amt,
+                    "tax": num(_cell(r, heads.get("tax"))),
+                    "total": num(_cell(r, heads.get("total"))),
+                    "fxRmb": num(_cell(r, heads.get("fxRmb"))),
+                    "note": str(_cell(r, heads.get("note")) or "").strip()[:100],
+                    "recv": num(_cell(r, heads.get("recv"))),
+                    "recvDate": iso_date(_cell(r, heads.get("recvDate"))),
+                })
+                continue
+            if len(r) < 4 or r[3] is None:
                 continue
             amt = num(r[3])
             if amt is None:
