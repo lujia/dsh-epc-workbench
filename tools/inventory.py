@@ -25,7 +25,12 @@ import json
 import os
 import sys
 
-TEXT_EXT = (".md", ".txt", ".csv")
+import docread
+
+TEXT_EXT = docread.TEXT_EXT
+WORD_EXT = docread.WORD_EXT
+PDF_EXT = docread.PDF_EXT
+DOC_EXT = TEXT_EXT + WORD_EXT + PDF_EXT
 SHEET_EXT = (".xlsx", ".xlsm")
 
 # Every ceiling is here rather than inline so a caller can see the whole budget
@@ -124,20 +129,14 @@ def _dir_entry(folder, path, depth):
 
 
 def _markdown(path):
-    """The header block of one markdown letter, which is where its identity is."""
-    try:
-        with open(path, "r", encoding="utf-8", errors="replace") as fh:
-            raw = fh.read(6000)
-    except OSError:
-        return None
-    lines = []
-    for line in raw.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        lines.append(line[:MAX_LINE_CHARS])
-        if len(lines) >= MAX_MARKDOWN_LINES:
-            break
+    """The header block of one document, which is where its identity is.
+
+    Named for the markdown letters it was written for, but it now serves any
+    document: a `.docx` letter and a PDF with a text layer carry the same
+    `Reference:`, `Date:` and subject lines, and a model reading the folder needs
+    to see them or it can only judge the corpus by its file names.
+    """
+    lines = docread.head_lines(path, MAX_MARKDOWN_LINES, MAX_LINE_CHARS, 6000)
     if not lines:
         return None
     return lines
@@ -207,32 +206,51 @@ def inventory(folder):
     if len(entries) > MAX_DIRS:
         entries = entries[:MAX_DIRS]
 
-    markdown_paths = [p for p in files if _ext(p) in TEXT_EXT]
-    # Spread the sample over the folders rather than taking the first N of one
-    # directory: a corpus has one series per folder and reading a single folder
-    # would describe only one of them.
+    document_paths = [p for p in files if _ext(p) in DOC_EXT]
+    # Spread the sample over the folders first and the formats second. A corpus
+    # keeps its letters as markdown in one tree and its certificates as PDFs in
+    # another; draining one folder at a time fills every slot with the first tree
+    # met and never shows the model a single scan — and the scans are exactly what
+    # it has to be told about when the reader could not parse them. So each pass
+    # takes one document from every folder, preferring a format the sample has not
+    # covered yet.
     by_folder = {}
-    for path in markdown_paths:
-        by_folder.setdefault(os.path.dirname(path), []).append(path)
+    for path in document_paths:
+        by_folder.setdefault(os.path.dirname(path), {}).setdefault(_ext(path), []).append(path)
+    folders = sorted(by_folder, key=lambda d: -sum(len(b) for b in by_folder[d].values()))
+    seen_ext = {}
     sample = []
-    while len(sample) < MAX_MARKDOWN and by_folder:
-        for key in list(by_folder):
-            bucket = by_folder[key]
-            if not bucket:
-                del by_folder[key]
-                continue
-            sample.append(bucket.pop(0))
+    while len(sample) < MAX_MARKDOWN and folders:
+        progressed = False
+        for folder_key in folders:
             if len(sample) >= MAX_MARKDOWN:
                 break
+            buckets = by_folder[folder_key]
+            live = [e for e in buckets if buckets[e]]
+            if not live:
+                continue
+            # fewest samples so far wins, so a corpus of 8000 markdown letters and
+            # 40 scanned PDFs still describes both
+            live.sort(key=lambda e: (seen_ext.get(e, 0), e))
+            chosen = live[0]
+            sample.append(buckets[chosen].pop(0))
+            seen_ext[chosen] = seen_ext.get(chosen, 0) + 1
+            progressed = True
+        if not progressed:
+            break
     markdown = []
     for path in sample:
         lines = _markdown(path)
+        entry = {"path": os.path.relpath(path, folder).replace("\\", "/")}
         if lines is None:
-            continue
-        markdown.append({
-            "path": os.path.relpath(path, folder).replace("\\", "/"),
-            "lines": lines,
-        })
+            # A scanned page has no text layer. Saying so is the honest answer,
+            # and it is also information: a folder of such files is a folder of
+            # images, which is why the reader cannot parse it.
+            entry["note"] = "no text layer"
+            entry["lines"] = []
+        else:
+            entry["lines"] = lines
+        markdown.append(entry)
 
     sheet_paths = [p for p in files if _ext(p) in SHEET_EXT]
     # Newest-looking names first is a guess; a stable order is more honest, so
@@ -263,7 +281,7 @@ def inventory(folder):
             "dirs": len(dirs),
             "byExt": by_ext,
             "markdownSampled": len(markdown),
-            "markdownTotal": len(markdown_paths),
+            "markdownTotal": len(document_paths),
             "workbooksSampled": len(workbooks),
             "workbooksTotal": len(sheet_paths),
         },

@@ -21,12 +21,18 @@ import json
 import os
 import re
 
+import docread
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 PKG = os.path.dirname(HERE)
 
 DEFAULT_NAMES = ("workbench.config.json", "workbench.config.example.json")
 
 CONTRACT_KINDS = ("main", "sub")
+# The role names the extractor and the client both understand. A party keyed by one
+# of these is the entry a contract's `counterparty` points at, so it is the one that
+# survives when two answers describe the same organisation.
+PARTY_ROLES = ("employer", "contractor", "subcontractor")
 
 
 class ConfigError(Exception):
@@ -364,10 +370,19 @@ MONTH_NUM = {m[:3].lower(): i + 1 for i, m in enumerate(
 
 
 def _md_files(folder):
+    """Documents in a folder, in the formats a prepared corpus actually holds.
+
+    Markdown is what an OCR pass writes, but a folder prepared by hand keeps its
+    letters as Word or PDF. Discovery used to look for `.md` alone, so a folder of
+    Word letters reported 'no letter series were recognised' even though the
+    letters were right there — the assisted path then had to guess what the reader
+    could have seen for itself.
+    """
     try:
-        return [n for n in sorted(os.listdir(folder)) if n.lower().endswith(".md")]
+        names = sorted(os.listdir(folder))
     except OSError:
         return []
+    return [n for n in names if docread.readable(n) and not n.startswith("~$")]
 
 
 def _xlsx_files(folder):
@@ -387,13 +402,22 @@ def _subdirs(folder):
 
 
 def _letter_head(path, limit=14):
-    """The ``[Key] value`` lines at the top of an extracted letter."""
+    """The ``[Key] value`` lines at the top of a letter, whatever carries them."""
     out = {}
-    try:
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            head = fh.read(4000)
-    except OSError:
-        return out
+    if docread.ext(path) == ".md":
+        try:
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                head = fh.read(4000)
+        except OSError:
+            return out
+    else:
+        # A Word letter or a PDF with a text layer flattens its lines, so the
+        # header keys are recovered from the run of text: each `[Key]` starts a
+        # field and the value runs to the next one.
+        head = docread.read_text(path, 4000)
+        if not head:
+            return out
+        head = head.replace(" [", "\n[")
     for line in head.splitlines()[:limit]:
         m = HEADER_LINE_RE.match(line)
         if m:
@@ -665,6 +689,143 @@ def _price_sums(path):
     the foreign slice carries a label and the local slice follows bare, because
     the sheet's own column headings already say which is which. Both are taken in
     the order they appear so each slice stays attached to its currency.
+
+    A bare figure is labelled from the heading row of the block it sits in: the
+    row reads 'Date | USD | LKR | LKR | …', so the nth figure of the block is in
+    the nth currency of that row. Without that, the local slice would have no
+    currency at all and the client would print it with the first one it knows.
+    """
+    wb = _open(path)
+    if wb is None:
+        return []
+    out = []
+    for name in wb.sheetnames:
+        if not re.search(r"monthly|record", name, re.I):
+            continue
+        ws = wb[name]
+        try:
+            rows = [list(r) for r in ws.iter_rows(max_row=8, max_col=8, values_only=True)]
+        except Exception:
+            rows = []
+        for r_index, cells in enumerate(rows):
+            text = " ".join(c for c in cells if isinstance(c, str))
+            if "price" not in text.lower():
+                continue
+            # the heading row above the figures names the currency of every column
+            heading = []
+            for i, c in enumerate(cells):
+                if isinstance(c, str) and re.search(r"^\s*(US\$|USD|LKR|SLR|EUR|JPY|CNY|GBP|RMB)\s*$", c, re.I):
+                    heading.append((i, CURRENCY_CODE_MAP.get(c.strip().upper(), "")))
+            for m in AMOUNT_RE.finditer(text):
+                try:
+                    amount = round(float(m.group(2).replace(",", "")), 2)
+                except ValueError:
+                    continue
+                # a bare figure under 1000 in a header cell is a year or a revision
+                if amount < 1000:
+                    continue
+                code = CURRENCY_CODE_MAP.get((m.group(1) or "").upper(), "")
+                if not code and heading:
+                    # the nth amount of the block is in the nth currency of its heading
+                    nth = len([x for x in out if x.get("_row") == r_index])
+                    if nth < len(heading):
+                        code = heading[nth][1]
+                out.append({"code": code, "amount": amount, "_row": r_index})
+            if out:
+                break
+        if out:
+            break
+    wb.close()
+    # the row index was scaffolding for attributing bare figures; it is not part
+    # of the answer and must not travel into the configuration
+    for entry in out:
+        entry.pop("_row", None)
+    return out
+
+
+def _register_currencies(path):
+    """Which currency a payment register is kept in, and which others it mentions.
+
+    The heading row of the payment block names a currency over every money column,
+    and the tax column is always in the local currency — that repetition is the
+    only evidence of which of two currencies the project actually reports in. A
+    project priced in two currencies has both, but only one of them is the one the
+    register's own totals are written in.
+    """
+    wb = _open(path)
+    if wb is None:
+        return {"local": "", "all": []}
+    local = ""
+    order = []
+    for name in wb.sheetnames:
+        if not re.search(r"monthly|record", name, re.I):
+            continue
+        ws = wb[name]
+        try:
+            rows = [list(r) for r in ws.iter_rows(max_row=8, max_col=10, values_only=True)]
+        except Exception:
+            rows = []
+        for cells in rows:
+            labels = []
+            for c in cells:
+                if not isinstance(c, str):
+                    continue
+                stripped = c.strip().upper()
+                if stripped in CURRENCY_CODE_MAP:
+                    labels.append(CURRENCY_CODE_MAP[stripped])
+            if len(labels) < 2:
+                continue
+            # the currency named more than once is the one the tax column repeats
+            counts = {}
+            for code in labels:
+                counts[code] = counts.get(code, 0) + 1
+            ranked = sorted(counts.items(), key=lambda kv: (-kv[1], labels.index(kv[0])))
+            local = ranked[0][0]
+            for code in labels:
+                if code not in order:
+                    order.append(code)
+            break
+        if local:
+            break
+    wb.close()
+    return {"local": local, "all": order}
+    wb.close()
+    return out
+
+
+def _block_currency(rows, col):
+    """The currency a payment block is stated in, read from its own column labels.
+
+    Every payment block in the register carries a tax column beside it —
+    'VAT+SSCL (LKR)' — and a tax column is always in the currency of the amounts
+    it sits next to. That label is the evidence for which currency a figure in
+    the block is in, and it is the only evidence: the price cell itself reads
+    'C008: 486,031,428.00' with no currency at all, so reading it as the first
+    currency the workbook happens to mention gets the label wrong.
+    """
+    best = None
+    for cells in rows[:8]:
+        for i, value in enumerate(cells):
+            if not isinstance(value, str):
+                continue
+            m = CURRENCY_LABEL_RE.search(value)
+            if not m:
+                continue
+            code = CURRENCY_CODE_MAP.get(m.group("code").upper())
+            if not code:
+                continue
+            # the nearest label to the right of the figure belongs to its block
+            if i >= col and (best is None or i < best[0]):
+                best = (i, code)
+    return best[1] if best else ""
+
+
+def _sub_prices(path):
+    """Subcontract prices stated above the payment register, in order.
+
+    Each entry carries the currency of the block it was printed in, so a package
+    priced in the local currency is not labelled with the currency of the main
+    contract's foreign slice.
     """
     wb = _open(path)
     if wb is None:
@@ -679,49 +840,15 @@ def _price_sums(path):
         except Exception:
             rows = []
         for cells in rows:
-            text = " ".join(c for c in cells if isinstance(c, str))
-            if "price" not in text.lower():
-                continue
-            for m in AMOUNT_RE.finditer(text):
-                try:
-                    amount = round(float(m.group(2).replace(",", "")), 2)
-                except ValueError:
-                    continue
-                # a bare figure under 1000 in a header cell is a year or a revision
-                if amount < 1000:
-                    continue
-                out.append({"code": CURRENCY_CODE_MAP.get((m.group(1) or "").upper(), ""),
-                            "amount": amount})
-            if out:
-                break
-        if out:
-            break
-    wb.close()
-    return out
-
-
-def _sub_prices(path):
-    """Subcontract prices stated above the payment register, in order."""
-    wb = _open(path)
-    if wb is None:
-        return []
-    out = []
-    for name in wb.sheetnames:
-        if not re.search(r"monthly|record", name, re.I):
-            continue
-        ws = wb[name]
-        try:
-            rows = [list(r) for r in ws.iter_rows(max_row=8, max_col=8, values_only=True)]
-        except Exception:
-            rows = []
-        for cells in rows:
-            for c in cells:
+            for i, c in enumerate(cells):
                 if not isinstance(c, str) or "sub" not in c.lower() or "price" not in c.lower():
                     continue
+                currency = _block_currency(rows, i)
                 for m in re.finditer(r"([A-Z]?\d{2,4})\s*:\s*([\d,]+(?:\.\d+)?)", c):
                     try:
                         out.append({"code": m.group(1).upper(),
-                                    "amount": float(m.group(2).replace(",", ""))})
+                                    "amount": float(m.group(2).replace(",", "")),
+                                    "currency": currency})
                     except ValueError:
                         pass
                 break
@@ -1037,17 +1164,17 @@ def discover(folder):
 
         The name is the cheap test and the file is the honest one — a corpus on
         another machine may call the folder 'records/site/2026' and still hold the
-        minutes of a site meeting.
+        minutes of a site meeting. A letter that happens to mention the site
+        meeting is not a minute book, so a document carrying a letter reference is
+        rejected however the folder is named.
         """
         if MOM_DIR_RE.search(d):
             return True
         md = _md_files(full)
         if not md:
             return False
-        try:
-            with open(os.path.join(full, md[0]), encoding="utf-8", errors="replace") as fh:
-                head = fh.read(1200)
-        except OSError:
+        head = docread.read_text(os.path.join(full, md[0]), 1200)
+        if re.search(r"\[(LetterNo|RefNo)\]", head):
             return False
         return bool(re.search(r"minute|meeting", head, re.I))
 
@@ -1071,6 +1198,11 @@ def discover(folder):
                 continue
             if _is_minutes(os.path.basename(full), full) and not LETTER_DIR_RE.search(rel):
                 meeting_dirs.append(rel)
+    # A folder cannot be both: a letter series whose first document happens to
+    # mention 'meeting' would otherwise be listed twice and counted twice, once
+    # as correspondence and once as minutes.
+    letter_dirs = {s["dir"] for s in series}
+    meeting_dirs = [d for d in meeting_dirs if d not in letter_dirs]
     if not meeting_dirs:
         notes.append("no minute books were recognised (a folder named …meeting/minutes… "
                      "holding markdown)")
@@ -1418,6 +1550,13 @@ def discover(folder):
     # ---------------------------------------------------------------- contracts
     contracts = []
     main_amounts = _price_sums(os.path.join(folder, reg_rel)) if reg_rel else []
+    # The register's own headings say which currency the project reports in, and
+    # the certificate workbook says which currencies it prices in. The local one
+    # leads: a contract labelled with the foreign slice's currency is the single
+    # most visible error this page can make, and every figure on it is in the
+    # local currency.
+    reg_ccy = _register_currencies(os.path.join(folder, reg_rel)) if reg_rel else {"local": "", "all": []}
+    local_ccy = reg_ccy["local"] or ""
     usd = next((x["amount"] for x in main_amounts if x["code"] == "USD"), None)
     local = next((x["amount"] for x in main_amounts if x["code"] and x["code"] != "USD"), None)
     if local is None:
@@ -1432,7 +1571,7 @@ def discover(folder):
         "label": "Main contract",
         "counterparty": "employer",
         "issuer": "contractor",
-        "currency": (ms.get("currencies") or [""])[0],
+        "currency": local_ccy or (ms.get("currencies") or [""])[0],
         "value": local, "valueUsd": usd, "valueRevised": local,
         "originalValue": None, "originalValueUsd": None,
     }
@@ -1465,8 +1604,10 @@ def discover(folder):
                 # simply start at the certificate reference
                 has_period = "period" in joined.lower()
         value = None
+        sub_ccy = ""
         if i < len(sub_prices):
             value = sub_prices[i]["amount"]
+            sub_ccy = sub_prices[i].get("currency") or ""
         # The subcontract number is not in the register's summary cell, which only
         # says 'C008: 486,031,428.00'. The executed contract documents name it in
         # full, and they sit in a folder per package, so that is where it is read.
@@ -1475,7 +1616,10 @@ def discover(folder):
             "id": code, "kind": "sub", "tag": code,
             "no": sub_no or code, "label": "Package %d" % (i + 1),
             "counterparty": "subcontractor", "issuer": "contractor",
-            "currency": (ms.get("currencies") or [""])[0],
+            # a package is priced in the currency its own block of the register is
+            # kept in; falling back to the main contract's first currency is what
+            # printed a 486 million rupee package as US dollars
+            "currency": sub_ccy or local_ccy or (ms.get("currencies") or [""])[0],
             "dir": rel.replace("\\", "/") if rel else "",
             "file": retention,
             "has_period": has_period,
@@ -1571,6 +1715,18 @@ def discover(folder):
     site_m = re.search(r"([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,2}\s+"
                        r"(?:Power Station|Site|Plant|Terminal|Refinery|Mine|Substation))",
                        project_name + " " + (ms.get("site") or ""))
+    # The project's currency list leads with the local currency, because that is
+    # what every figure the register keeps is in; the certificate workbook's own
+    # order puts the foreign slice first, and following it made a rupee project
+    # print its packages as dollars. Currencies the certificate names but no
+    # figure is kept in are still listed, so a third currency is shown rather
+    # than dropped.
+    declared = []
+    for c in ([local_ccy] if local_ccy else []) + (ms.get("currencies") or []) + reg_ccy["all"]:
+        if c and c not in declared:
+            declared.append(c)
+    labels = {"USD": "US$", "LKR": "LKR", "JPY": "JPY", "EUR": "EUR",
+              "CNY": "CNY", "GBP": "GBP"}
     return {
         "_notes": notes,
         "project": {
@@ -1579,9 +1735,9 @@ def discover(folder):
             "mark": "".join(w[0] for w in re.split(r"[\s_-]+", short or name) if w)[:4].upper() or "EPC",
             "site": site_m.group(1).strip() if site_m else "",
             "standpoint": (ours or ""),
-            "currency": (ms.get("currencies") or [""])[0],
-            "currencies": [{"code": c, "label": ("US$" if c == "USD" else c),
-                            "primary": i == 0} for i, c in enumerate(ms.get("currencies") or [])],
+            "currency": declared[0] if declared else "",
+            "currencies": [{"code": c, "label": labels.get(c, c),
+                            "primary": i == 0} for i, c in enumerate(declared)],
         },
         "parties": parties,
         "contracts": contracts,
@@ -1604,4 +1760,260 @@ def project_public(cfg):
     out["p02Contract"] = cfg["subs"][1]["no"] if len(cfg["subs"]) > 1 else ""
     out["mainContract"] = cfg["main"]["no"]
     out["client"] = out.get("employer", "")
+    return out
+
+
+def _fill_missing(target, source):
+    """Copy into `target` only what `target` does not already state.
+
+    A model answer and a discovery answer describe the same configuration, and the
+    question of which one wins has one right answer: the one that read the file.
+    Discovery parsed the workbooks and knows the sheet names, the column maps and
+    the contract sums; the model saw a description of the folder and can name a
+    series the walker missed. So discovery's value is kept wherever it has one and
+    the model only fills the gaps, which also means a model answer that names a
+    wrong workbook cannot overwrite a right one.
+    """
+    for key, value in source.items():
+        if value in (None, "", [], {}):
+            continue
+        current = target.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            _fill_missing(current, value)
+        elif isinstance(current, list) and isinstance(value, list):
+            # A list the reader filled is kept whole: the two lists are not
+            # element-wise comparable and merging them by index would pair a
+            # package with an unrelated package.
+            if not current:
+                target[key] = value
+        elif current in (None, "", [], {}):
+            target[key] = value
+    return target
+
+
+def merge(discovered, analysed):
+    """The configuration to extract with, given both readers' answers.
+
+    'Choose folder' is the deterministic path and 'Analyze with model' is the
+    assisted one, but the assisted path is not a replacement: the model is asked
+    what the folder holds, and everything the deterministic reader already
+    established from the files themselves stays as it is. What the model adds is
+    the parts the reader could not recognise — a series under an unexpected name,
+    a register in a workbook the walker passed over, the project's own name.
+    """
+    if not analysed:
+        return discovered
+    if not discovered:
+        return analysed
+    out = dict(discovered)
+    # `contracts` is where the money lives, and `main`/`subs` are views of it. A
+    # model answer must not be able to restate a contract's price or currency, so
+    # the merge below only ever ADDS a contract the reader did not see, and never
+    # rewrites one it did.
+    for key in ("project", "sources"):
+        merged = dict(discovered.get(key) or {})
+        _fill_missing(merged, analysed.get(key) or {})
+        out[key] = merged
+
+    # A project name read off the folder name is not a name, it is a placeholder:
+    # the model read the letterheads and knows what the project is called. Only
+    # that one case is overridden, because everywhere else the reader's value came
+    # out of a file.
+    mine = out.get("project") or {}
+    theirs = analysed.get("project") or {}
+    root = (discovered.get("sources") or {}).get("root") or ""
+    base = os.path.basename(str(root).rstrip("\\/")).lower()
+    if base and theirs.get("name") and str(mine.get("name") or "").strip().lower() in ("", base):
+        for field in ("name", "short", "mark", "site"):
+            if theirs.get(field):
+                mine[field] = theirs[field]
+        out["project"] = mine
+    # identity is the one thing the model is better at than a filename heuristic:
+    # it read the letterheads and the certificate header, so its names win when
+    # the reader only had a fallback like 'Employer' or the folder name
+    for key in ("parties", "contracts"):
+        current = discovered.get(key) or []
+        answer = analysed.get(key) or []
+        if not current:
+            out[key] = answer
+        elif answer:
+            out[key] = _merge_identified(current, answer, key)
+    # A party the reader only knew by a reference token ('HALO', 'NORV') is a
+    # placeholder, and the model that read the letterheads can replace it. The
+    # merge above only fills blanks, so this is the one place a name is overridden.
+    out["parties"] = _prefer_named(out.get("parties") or [], analysed.get("parties") or [])
+    out["parties"], remap = _collapse_parties(out["parties"])
+    # A contract that named a party id the fold removed has to point at the survivor,
+    # otherwise normalise() has to invent the party all over again and the merge
+    # leaves a duplicate behind for the next reader.
+    if remap:
+        for contract in out.get("contracts") or []:
+            who = str(contract.get("counterparty") or "")
+            if who in remap:
+                contract["counterparty"] = remap[who]
+    known_contracts = {c.get("id") for c in (out.get("contracts") or []) if c.get("id")}
+    main_id = ((out.get("main") or {}).get("id")) or "MAIN"
+    for key in ("letters", "meetings"):
+        out[key] = _merge_sources(
+            discovered.get(key) or [], analysed.get(key) or [], main_id, known_contracts)
+    out["_notes"] = list(discovered.get("_notes") or []) + [
+        n for n in (analysed.get("_notes") or []) if n not in (discovered.get("_notes") or [])]
+    return out
+
+
+def _collapse_parties(parties):
+    """One entry per organisation, whichever way it was identified.
+
+    The reader names a party by its role ('employer', 'contractor') because that is
+    what a reference implies; the model names the same organisation by its code
+    ('norv', 'halo') because that is what the letterhead prints. Merging the two
+    answers by id therefore leaves each organisation in the list twice, and the
+    participants card prints it twice. Entries are folded when they share a name or
+    an abbreviation, keeping the role-keyed entry because that is the one the
+    contracts point at. Returns the folded list and the id remapping, so a contract
+    still naming a folded-away id can be pointed at the survivor.
+    """
+    by_key = {}
+    order = []
+    remap = {}
+    for entry in parties:
+        name = str(entry.get("name") or "").strip().lower()
+        abbr = str(entry.get("abbr") or "").strip().lower()
+        key = name or abbr or str(entry.get("id") or "")
+        if not key:
+            continue
+        if key not in by_key:
+            by_key[key] = dict(entry)
+            order.append(key)
+            continue
+        kept = by_key[key]
+        # A role-keyed id is the one a contract names, so it survives; the other
+        # entry only contributes the fields the survivor is missing.
+        if str(kept.get("id")) not in PARTY_ROLES and str(entry.get("id")) in PARTY_ROLES:
+            merged = dict(entry)
+            for field, value in kept.items():
+                if value and not merged.get(field):
+                    merged[field] = value
+            remap[str(kept.get("id"))] = str(merged.get("id"))
+            by_key[key] = merged
+            continue
+        remap[str(entry.get("id"))] = str(kept.get("id"))
+        for field, value in entry.items():
+            if value and not kept.get(field):
+                kept[field] = value
+    return [by_key[k] for k in order], remap
+
+
+def _merge_sources(current, answer, main_id, known_contracts):
+    """The reader's sources, with the model's contract attribution and additions.
+
+    The reader knows where the records are; the model knows which contract they
+    belong to, because it read them. A series the reader found keeps its folder,
+    series key and side, and only its contract may be corrected — dropping it in
+    favour of the model's entry would lose the counts the reader already took. A
+    series the reader never found is appended.
+    """
+    by_dir = {}
+    out = []
+    for entry in current:
+        item = dict(entry)
+        if item.get("contract") not in known_contracts:
+            item["contract"] = main_id
+        by_dir[str(item.get("dir") or "")] = len(out)
+        out.append(item)
+    for entry in answer:
+        item = dict(entry)
+        if item.get("contract") not in known_contracts:
+            item["contract"] = main_id
+        at = by_dir.get(str(item.get("dir") or ""))
+        if at is None:
+            out.append(item)
+            continue
+        # Same folder, two answers: the model read the documents and the reader only
+        # inferred from the name, so its contract attribution wins here.
+        out[at]["contract"] = item["contract"]
+        # The reader's label is assembled from the role it guessed ('Issued to
+        # employer') or copied off the folder name ('board'), and once the model has
+        # said which contract the series belongs to, a guessed label can contradict
+        # it. A label the documents support is therefore preferred over one built
+        # out of the guess; a label the reader derived from the records is kept.
+        mine_label = str(out[at].get("label") or "")
+        folder_name = os.path.basename(str(out[at].get("dir") or "").rstrip("\\/"))
+        guessed = (mine_label.startswith(("Issued to ", "Received from "))
+                   or mine_label == str(out[at].get("series") or "")
+                   or mine_label == folder_name)
+        if item.get("label") and (guessed or not mine_label):
+            out[at]["label"] = item["label"]
+    return out
+
+
+def _prefer_named(current, answer):
+    """Replace a party name that is only a reference token with a real one.
+
+    The reader derives parties from document references, so a corpus whose letters
+    say `HALO-NORV-SUB-C-001` yields parties called HALO and NORV. Those are the
+    codes the project uses, not the organisations, and the model that read the
+    letterheads has the organisations. Matching is by role, because the ids on the
+    two sides need not agree, and a name is only replaced when it is short enough
+    to be a code and the model's name is not.
+    """
+    by_role = {}
+    for entry in answer:
+        role = str(entry.get("role") or "").strip().lower()
+        if role and entry.get("name"):
+            by_role[role] = entry
+    for entry in current:
+        role = str(entry.get("role") or "").strip().lower()
+        named = by_role.get(role)
+        if not named:
+            continue
+        mine = str(entry.get("name") or "").strip()
+        theirs = str(named.get("name") or "").strip()
+        if len(mine) <= 8 and len(theirs) > len(mine):
+            entry["name"] = theirs
+            if not entry.get("former") and named.get("former"):
+                entry["former"] = named["former"]
+            if not entry.get("abbr") and named.get("abbr"):
+                entry["abbr"] = named["abbr"]
+    return current
+
+
+def _merge_identified(current, answer, key):
+    """Pair two identified lists by id, keeping the reader's facts and the model's names."""
+    by_id = {e.get("id"): dict(e) for e in current if e.get("id")}
+    for entry in answer:
+        cid = entry.get("id")
+        if not cid or cid not in by_id:
+            continue
+        mine = by_id[cid]
+        # A name the reader only had a fallback for is replaced; a number, a path
+        # or an amount it parsed out of a file is not. A contract is the one entry
+        # whose money fields are never touched here at all — the reader opened the
+        # register and the certificate workbook, and a summary of the folder
+        # cannot out-argue them about a price or a currency.
+        fields = ("name", "former", "abbr", "label", "tag") if key == "contracts" \
+            else ("name", "former", "abbr", "label", "tag", "no")
+        for field in fields:
+            if entry.get(field) and not mine.get(field):
+                mine[field] = entry[field]
+        # normalise() fills a blank contract number with the contract's own id, so
+        # 'no == id' is a placeholder rather than a fact the reader established. A
+        # number the model read off a contract document beats it.
+        if key == "contracts" and entry.get("no"):
+            if str(mine.get("no") or "").strip() in ("", str(cid)):
+                mine["no"] = entry["no"]
+        if key == "parties":
+            for field in ("name", "former", "abbr"):
+                if entry.get(field) and str(mine.get(field) or "").lower() in (
+                        "", "employer", "contractor", "subcontractor", entry.get("id")):
+                    mine[field] = entry[field]
+        by_id[cid] = mine
+    order = [e.get("id") for e in current if e.get("id")]
+    out = [by_id[cid] for cid in order if cid in by_id]
+    # A contract the reader never found is still worth having: it may be the one
+    # whose records were in a format the reader could not open.
+    known = set(order)
+    for entry in answer:
+        if entry.get("id") and entry.get("id") not in known:
+            out.append(dict(entry))
     return out

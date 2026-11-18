@@ -51,18 +51,23 @@ project. A strip sits above every page:
 PROJECT  Demo dataset  shipped with the plugin                    [ Choose folder ]  [ Analyze with model ]  [ Use demo data ]
 ```
 
-`Choose folder` opens the host's native directory picker. Whatever folder you pick is read
-by `tools/discover_folder.py`, which works out the parties, contracts, letter series,
-minute books, payment registers, retention sheets, defect register, document folders and
-the currency list from the records themselves; the extracted dataset is then written to
-`$DSH_HOME/cache/epc-workbench/<hash>/data`, away from the project, and the page reloads
-onto it. **The project folder is only ever read.** The strip then names the folder and the
-time it was read, and lists anything discovery could not establish, so a blank field is
-never mistaken for a zero.
+The two buttons are different readers, and the difference matters:
 
-`Analyze with model` reads the folder even when nothing in it matches the reader's
-expectations, by asking the model the harness is running to work out what the folder holds
-— see [When the reader recognises nothing at all](#when-the-reader-recognises-nothing-at-all).
+* **Choose folder** is for a folder already laid out the way this workbench expects —
+  records in workbooks and documents the deterministic reader can parse. It runs
+  `tools/discover_folder.py`, which works out the parties, contracts, letter series, minute
+  books, payment registers, retention sheets, defect register, document folders and the
+  currency list from the records themselves.
+* **Analyze with model** is for a folder that is *not* laid out that way — letters in PDF or
+  Word, records the reader cannot parse, a tree nobody organised. It runs the same
+  discovery first, then asks the model the harness is running what the folder holds and
+  merges that answer over the reader's findings: the reader keeps every fact it established
+  from a file, and only the parts it could not recognise come from the model.
+
+Either way the extracted dataset is written to `$DSH_HOME/cache/epc-workbench/<hash>/data`,
+away from the project, and the page reloads onto it. **The project folder is only ever
+read.** The strip then names the folder and the time it was read, and lists anything the
+reader could not establish, so a blank field is never mistaken for a zero.
 
 A real project takes a minute or two: the build runs in the background and the page polls
 `/plugins/epc-workbench/state`, showing the extractor's last progress line while it works.
@@ -110,6 +115,14 @@ here requires an exact file:
   and reading the first file, so `records/letters/issued` works as well as
   `md_Letters_issued_to_ADVE`, and a folder named `incoming` works as well as
   `…_received_from_…`.
+* **Documents are read, not just filenames.** `.md`, `.txt`, `.docx` and `.pdf` are all
+  readable: Word through `python-docx`, PDF by decompressing the text operators in the file
+  (a scanned PDF with no text layer is reported as such instead of being read as noise).
+  The same document present twice — the scan and the OCR output — is counted once, the
+  extracted text winning over the scan.
+* **Currency is read from the block, not from the first label in the workbook.** A register
+  that prints `US$` beside the foreign slice of the main contract and `LKR` beside the
+  packages is read that way round, so a package priced in rupees is not labelled in dollars.
 * **Unreadable is not fatal.** Every `load_workbook` is guarded; a corrupt or locked file
   becomes one line of explanation and the rest of the page still fills.
 * **Nothing is invented.** Whatever could not be read is listed, and the page names the
@@ -135,9 +148,14 @@ tool. For that case the host asks the model the harness is already running:
 2. `analyze.js` asks the running model, with that description, which folder is which kind
    of record and which sheet holds what, and gets back a configuration in the same shape
    `tools/epc_config.py` reads.
-3. The extractor runs against that configuration, so the page is built from the real
-   records, not from the model's prose. Only the *layout* is the model's judgement; every
-   number on the page is still read out of the file it comes from.
+3. `tools/merge_config.py` merges that answer over the deterministic one: the reader keeps
+   every fact it read out of a file — prices, currencies, sheet names, folder paths, counts
+   — and the model supplies the parts the reader could not recognise, plus the names it
+   could only read as reference codes. A model answer that names the wrong workbook cannot
+   overwrite a sheet the reader opened.
+4. The extractor runs against the merged configuration, so the page is built from the real
+   records, not from the model's prose. Only the *layout* and the *identity* are the model's
+   judgement; every number on the page is still read out of the file it comes from.
 
 This happens automatically when the deterministic reader recognises nothing, and can be
 forced with the **Analyze with model** button in the project strip. The strip then shows
@@ -177,7 +195,8 @@ The npm package carries the runtime surface plus what is needed to point it at y
 records: `index.js`, `client.js`, `icon.svg`, `cordis.patch.yml`, the two locales, the
 demo dataset, `workbench.config.example.json`, `docs/CONFIGURATION.md` and the extractor
 scripts (`tools/build_data.py`, `tools/epc_config.py`, `tools/discover_folder.py`,
-`tools/make_demo.py`). `src/`, `preview/` and the client build/smoke i18n scripts are
+`tools/docread.py`, `tools/inventory.py`, `tools/merge_config.py`, `tools/make_demo.py`,
+`analyze.js`). `src/`, `preview/` and the client build/smoke i18n scripts are
 development aids that only the git checkout has.
 
 The folder reader needs a Python with `openpyxl`. It looks for `EPC_WORKBENCH_PYTHON`

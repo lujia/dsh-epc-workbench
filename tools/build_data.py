@@ -18,6 +18,7 @@ Usage:
 import os, re, sys, json, datetime, warnings, math
 
 import epc_config
+import docread
 
 warnings.filterwarnings("ignore")
 
@@ -322,16 +323,48 @@ def package_of(cfg, ref):
 
 
 def letter_header(path):
-    with open(path, encoding="utf-8", errors="replace") as fh:
-        head = fh.read(6000)
+    # A letter is a letter whatever carries it: the extracted markdown of a scan,
+    # a Word file as issued, a PDF with a text layer, or a plain text note. The
+    # header keys are looked for in the text either way, because a folder prepared
+    # by someone else will not necessarily hold markdown.
+    if docread.ext(path) == ".md":
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            head = fh.read(6000)
+    else:
+        head = docread.read_text(path, 6000)
+        if not head:
+            return {}
+        # `[Key] value` lines survive as a run of text, so they are recovered from
+        # the flattened document by matching each key wherever it starts a line or
+        # follows another header.
+        head = head.replace(" [", "\n[")
     out = {}
-    for line in head.splitlines()[:12]:
+    for line in head.splitlines()[:24]:
         m = re.match(r"\[(\w+)\]\s*(.*)", line)
         if m and m.group(1) in HEADER_KEYS:
             out[m.group(1)] = m.group(2).strip()
     i = head.find("[OCR_TEXT]")
-    out["_body"] = head[i + 10:] if i >= 0 else ""
+    out["_body"] = head[i + 10:] if i >= 0 else head
     return out
+
+
+# A corpus that has been through an OCR pass holds each document twice: the
+# original scan and the extracted text. Both are readable now, so both would be
+# counted — one minute would appear as two. The extracted text wins, because it
+# is the same document with the layout already resolved.
+DOC_RANK = {".md": 0, ".txt": 1, ".docx": 2, ".pdf": 3}
+
+
+def one_per_document(names):
+    """One file per document, preferring the extracted text over the original."""
+    best = {}
+    for name in names:
+        stem = os.path.splitext(name)[0]
+        rank = DOC_RANK.get(docread.ext(name), 9)
+        current = best.get(stem)
+        if current is None or rank < current[0]:
+            best[stem] = (rank, name)
+    return [entry[1] for entry in best.values()]
 
 
 def scan_letters(folder, series):
@@ -347,15 +380,15 @@ def scan_letters(folder, series):
             return rows
         base = alt
         folder = os.path.relpath(alt, ROOT) if alt.startswith(ROOT) else alt
-    for name in sorted(os.listdir(base)):
-        if not name.lower().endswith(".md"):
-            continue
+    for name in one_per_document([n for n in sorted(os.listdir(base)) if docread.readable(n)]):
         path = os.path.join(base, name)
         try:
             h = letter_header(path)
         except OSError:
             continue
-        no = h.get("LetterNo") or name.split("__")[0]
+        if not h:
+            continue
+        no = h.get("LetterNo") or os.path.splitext(name)[0].split("__")[0]
         body = h.get("_body", "")
         date = parse_date(body[:1500])
         if date is None:
@@ -439,11 +472,16 @@ def scan_meetings(folder, series):
             return out
         base = alt
         folder = os.path.relpath(alt, ROOT) if alt.startswith(ROOT) else alt
-    for name in sorted(os.listdir(base)):
-        low = name.lower()
-        if not low.endswith(".md"):
+    for name in one_per_document([n for n in sorted(os.listdir(base)) if docread.readable(n)]):
+        stem = os.path.splitext(name)[0]
+        head = docread.read_text(os.path.join(base, name), 1600)
+        # A minute folder holds more than minutes: a progress chart printed to PDF
+        # and filed beside the minutes is not a meeting. A document counts when it
+        # says so itself, or when its own name does — a scan with no text layer
+        # still reads as a minute from `MoM-266` in the filename.
+        if not (re.search(r"minute|meeting|mom\b", head, re.I)
+                or re.search(r"(mom|min|minute|meeting)", stem, re.I)):
             continue
-        stem = name[:-3]
         m = re.search(r"(20\d{2})(\d{2})(\d{2})", stem)
         date = None
         if m:
@@ -454,30 +492,25 @@ def scan_meetings(folder, series):
         ref = re.split(r"[\s_]", stem)[0]
         title = ""
         subj = ""
-        try:
-            with open(os.path.join(base, name), encoding="utf-8", errors="replace") as fh:
-                head = fh.read(1600)
-            for line in head.splitlines()[:8]:
-                if line.startswith("# ") and not title:
-                    title = line[2:].strip()
-                low2 = line.lower()
-                if not subj and "subject" in low2 and ":" in line:
-                    subj = line.split(":", 1)[1].strip()[:160]
-            if not title or title == stem:
-                # Some minute books carry no markdown heading: their OCR body opens
-                # with a banner such as 'SITE PROGRESS MEETTING MINUTES – 17/07/2020',
-                # which reads far better in a table than the bare document number.
-                for line in head.splitlines()[:40]:
-                    text = line.strip()
-                    if len(text) < 8 or len(text) > 120:
-                        continue
-                    if text.startswith("[") or text.startswith("#") or set(text) <= set("-—= "):
-                        continue
-                    if re.search(r"minute|meeting", text, re.I):
-                        title = text
-                        break
-        except OSError:
-            pass
+        for line in head.splitlines()[:8]:
+            if line.startswith("# ") and not title:
+                title = line[2:].strip()
+            low2 = line.lower()
+            if not subj and "subject" in low2 and ":" in line:
+                subj = line.split(":", 1)[1].strip()[:160]
+        if not title or title == stem:
+            # Some minute books carry no markdown heading: their OCR body opens
+            # with a banner such as 'SITE PROGRESS MEETTING MINUTES – 17/07/2020',
+            # which reads far better in a table than the bare document number.
+            for line in head.splitlines()[:40]:
+                text = line.strip()
+                if len(text) < 8 or len(text) > 120:
+                    continue
+                if text.startswith("[") or text.startswith("#") or set(text) <= set("-—= "):
+                    continue
+                if re.search(r"minute|meeting", text, re.I):
+                    title = text
+                    break
         out.append({"ref": ref, "date": date, "title": (title or stem)[:160],
                     "subj": subj, "series": series,
                     "file": os.path.join(folder, name)})
@@ -1398,7 +1431,11 @@ def scan_certificate_pdfs(folder):
     enough for the register: an auditor wants to know which certificate has a
     signed copy on file and where.
     """
-    base = os.path.join(ROOT, folder)
+    # An empty folder setting means the project has no scan folder at all; joining
+    # it onto the root would index every PDF in the corpus as a certificate.
+    if not folder:
+        return []
+    base = folder if os.path.isabs(folder) else os.path.join(ROOT, folder)
     out = []
     if not os.path.isdir(base):
         return out
@@ -1407,14 +1444,24 @@ def scan_certificate_pdfs(folder):
             continue
         path = os.path.join(base, name)
         low = name.lower()
-        m = SCAN_RE.match(name)
+        # A configuration written by the model need not carry a scan pattern. The
+        # reference still reads as 'P-048' in the name, so fall back to that rather
+        # than aborting the whole extraction on a missing regex.
+        m = SCAN_RE.match(name) if SCAN_RE is not None else None
+        if m is None:
+            loose = re.search(r"\bP[-_ ]?0*(\d{1,4})\b", name)
+            m_ref = loose.group(1) if loose else None
+            m_party = None
+        else:
+            m_ref = m.group("ref")
+            m_party = m.group("party")
         ordinal = _certificate_ordinal(name)
         out.append({
             "name": name,
             "size": os.path.getsize(path),
-            "ref": ("P-" + m.group("ref").zfill(3)) if m else None,
+            "ref": ("P-" + m_ref.zfill(3)) if m_ref else None,
             "ordinal": ordinal,
-            "issuer": m.group("party") if m else None,
+            "issuer": m_party,
             "amended": "revised" in low or "amend" in low,
             "enclosure": "enclosure" in low,
         })

@@ -247,6 +247,13 @@
 					? h('ul', { className: 'epc-notes-l epc-notes-ok' }, found.map(function (n, i) {
 						return h('li', { key: 'f' + i }, n);
 					}))
+					: null,
+				props.hint
+					/* The reader recognised nothing at all. That is not a dead end
+					   any more, but the way out is a button in the strip, and a
+					   reader looking at this list is exactly the one who needs
+					   pointing at it. */
+					? h('div', { className: 'epc-notes-hint' }, props.hint)
 					: null);
 		}
 
@@ -414,6 +421,15 @@
 				});
 				return out;
 			}, [source]);
+			/* A folder the reader could not read at all, which is the case the
+			   strip's second button exists for. The hint is printed inside the
+			   gap list, because that is where a reader ends up when the page
+			   looks empty and nothing has explained why. */
+			var readHint = useMemo(function () {
+				var isFolder = source && source.active && source.active.source === 'folder';
+				if (!isFolder || readFound.length > 0) return null;
+				return t('src.notes.empty.hint');
+			}, [source, readFound]);
 			var counts = data ? {
 				correspondence: data.letters.total,
 				meetings: data.meetings.total,
@@ -551,7 +567,7 @@
 								onAnalyze: analyzeFolder,
 								onReset: resetSource
 							}),
-							notesOpen ? h(NoteList, { notes: readNotes, found: readFound }) : null),
+							notesOpen ? h(NoteList, { notes: readNotes, found: readFound, hint: readHint }) : null),
 						h('div', { className: 'epc-scroll' }, body))),
 
 				h('div', { className: 'epc-status' },

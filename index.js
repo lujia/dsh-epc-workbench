@@ -354,8 +354,12 @@ async function datasetIsEmpty(dir) {
  * with. Returns `{ config, model, notes }`: `config` is null when the model could
  * not describe the folder, and the caller then keeps whatever the deterministic
  * reader produced.
+ *
+ * `discoveredPath` is the configuration the deterministic reader already wrote.
+ * When it exists the model's answer is merged INTO it rather than replacing it —
+ * the reader parsed the workbooks, the model only saw a description of them.
  */
-async function analyzeConfig(ctx, python, folder, cfgPath, outDir) {
+async function analyzeConfig(ctx, python, folder, cfgPath, outDir, discoveredPath = null) {
 	build.phase = 'inventory';
 	build.log += `describing ${folder} for the model\n`;
 	const inventoryPath = join(outDir, 'inventory.json');
@@ -386,7 +390,26 @@ async function analyzeConfig(ctx, python, folder, cfgPath, outDir) {
 	analysis.config.sources.root = folder;
 	analysis.config.sources.out = join(outDir, 'data');
 	analysis.config._notes = (analysis.notes || []).slice();
-	await writeFile(cfgPath, JSON.stringify(analysis.config, null, 1), 'utf8');
+
+	const analysedPath = join(outDir, 'analysed.config.json');
+	await writeFile(analysedPath, JSON.stringify(analysis.config, null, 1), 'utf8');
+
+	let finalPath = analysedPath;
+	if (discoveredPath && (await exists(discoveredPath))) {
+		// Merge, do not replace: see tools/merge_config.py. A model answer that
+		// names the wrong workbook must not overwrite a sheet the reader opened.
+		const merged = await run(
+			[python, join(ROOT, 'tools', 'merge_config.py'), discoveredPath, analysedPath, cfgPath],
+			ROOT,
+		);
+		build.log += merged.stdout + merged.stderr;
+		if (merged.code === 0) {
+			finalPath = cfgPath;
+			const line = /^merged: (\d+) field/m.exec(merged.stdout || '');
+			analysis.mergedFields = line ? Number(line[1]) : 0;
+		}
+	}
+	if (finalPath !== cfgPath) await copyFile(finalPath, cfgPath);
 	build.log += `the configuration was written by ${analysis.model}\n`;
 	return analysis;
 }
@@ -405,18 +428,28 @@ async function runBuild(ctx, folder, options = {}) {
 	let found = [];
 	let model = null;
 
-	if (!force) {
-		build.phase = 'discovering';
-		const discover = await run(
-			[python, join(ROOT, 'tools', 'discover_folder.py'), folder, cfgPath, join(outDir, 'data')],
-			ROOT,
-		);
-		build.log += discover.stdout + discover.stderr;
-		if (discover.code !== 0) {
-			throw new Error(`discovery failed (exit ${discover.code}): ${(discover.stderr || discover.stdout).trim().slice(-400)}`);
-		}
+	// Both buttons start from the same place: what the files themselves say. The
+	// difference is what happens next — 'Choose folder' stops when that reading is
+	// usable, 'Analyze with model' always asks the model on top of it. Running
+	// discovery first in the assisted path is what makes the two answers mergeable
+	// instead of one replacing the other.
+	build.phase = 'discovering';
+	const discover = await run(
+		[python, join(ROOT, 'tools', 'discover_folder.py'), folder, cfgPath, join(outDir, 'data')],
+		ROOT,
+	);
+	build.log += discover.stdout + discover.stderr;
+	const discoveredOk = discover.code === 0;
+	if (!discoveredOk && !force) {
+		throw new Error(`discovery failed (exit ${discover.code}): ${(discover.stderr || discover.stdout).trim().slice(-400)}`);
+	}
+	if (discoveredOk) {
 		({ notes, found } = parseDiscoveryNotes(discover.stdout));
+	} else {
+		notes.push(`the reader could not describe this folder: ${(discover.stderr || discover.stdout).trim().slice(-300)}`);
+	}
 
+	if (!force) {
 		const first = await runExtractor(python, cfgPath, outDir);
 		if (first.result.code !== 0) {
 			// A run that read most of the corpus and then tripped over one workbook is
@@ -440,12 +473,22 @@ async function runBuild(ctx, folder, options = {}) {
 		build.log += 'nothing here matched the reader, asking the model\n';
 	}
 
-	const analysis = await analyzeConfig(ctx, python, folder, cfgPath, outDir);
+	const analysis = await analyzeConfig(
+		ctx, python, folder, cfgPath, outDir,
+		discoveredOk ? cfgPath : null,
+	);
 	model = analysis.model;
 	for (const note of analysis.notes || []) if (!notes.includes(note)) notes.push(note);
 	if (!analysis.config) {
-		if (force) throw new Error((analysis.notes || []).join('; ') || 'the model could not describe this folder');
-		return { dir: join(outDir, 'data'), notes, found, model };
+		if (force && !discoveredOk) {
+			throw new Error((analysis.notes || []).join('; ') || 'the model could not describe this folder');
+		}
+		if (!discoveredOk) {
+			return { dir: join(outDir, 'data'), notes, found, model };
+		}
+		// The model had nothing to add but the reader's own answer still stands:
+		// extract with what discovery wrote rather than failing the whole read.
+		build.log += 'the model had nothing to add, using the reader\'s own answer\n';
 	}
 
 	const second = await runExtractor(python, cfgPath, outDir);
@@ -457,7 +500,10 @@ async function runBuild(ctx, folder, options = {}) {
 		throw new Error(`extraction failed (exit ${second.result.code}): ${(second.result.stderr || second.result.stdout).trim().slice(-400)}`);
 	}
 	mergeExtractorNotes(second.result.stdout, notes);
-	found.push(`the layout was described by ${model}`);
+	if (analysis.config) {
+		const added = analysis.mergedFields != null ? ` (${analysis.mergedFields} field(s) added)` : '';
+		found.push(`the layout was described by ${model}${added}`);
+	}
 
 	const paths = datasetPaths(second.built);
 	if (!(await exists(paths.data)) || !(await exists(paths.index))) {

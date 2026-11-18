@@ -177,12 +177,25 @@ or arranged differently the reader falls back, and says so:
 | `contracts[].dir` + `file` (retention) | the first workbook under that folder with a retention sheet, or the first sheet whose first column opens with an IPC number |
 | `sources.latestCertificate` | the newest workbook whose filename carries an `IPC<n>` ordinal, preferring a sheet named `IPC-… (<n>)` and an item sheet mentioning a BOQ amount |
 | `sources.mainContractDir` | a folder named like a main contract, employer, owner or client |
-| `letters[].dir`, `meetings[].dir` | a folder found by walking the tree, whose first markdown file reads like a letter or a minute |
+| `letters[].dir`, `meetings[].dir` | a folder found by walking the tree, whose first document reads like a letter or a minute |
 
 A sheet name is matched after trimming spaces and case, so `GRAND SUM ` and `grand sum` are
 the same sheet. A workbook that openpyxl cannot open is reported and skipped; it never stops
 the build. Everything that was not read is listed for the reader, so an empty card is never
 mistaken for a zero.
+
+A document is matched by content too, and by any readable format: `.md`, `.txt`, `.docx` and
+`.pdf` all go through `tools/docread.py`, so a folder of Word letters is a letter series and
+not an empty one. The same document held twice (the scan and its OCR output) counts once,
+and a folder cannot be both a letter series and a minute book — the second reading is
+dropped rather than double-counting.
+
+Currency is established from the register rather than from the first currency label the
+workbook happens to print. Each payment block carries a tax column beside it (`VAT+SSCL
+(LKR)`), and that label is the evidence for the currency of the figures in the block; the
+project's primary currency is the one the register names more than once, because the tax
+column is always local. This is why a package priced in rupees is not labelled in dollars
+just because the main contract's foreign slice is printed above it.
 
 Column order is a preference too. The payment register and the defect register are read
 through their header row when one can be found in the first 25 rows: the reader maps each
@@ -194,26 +207,50 @@ was written against, and when the header puts a field somewhere unusual the stri
 
 ## Reading a folder with the model
 
-When neither the configured paths nor the fallbacks recognise anything — a folder whose
-records are shaped differently rather than merely named differently — the host can ask the
-model the harness is running what the folder holds, and extract against that answer.
+The two buttons in the project strip are two different readers:
+
+| Button | For | Route |
+| --- | --- | --- |
+| **Choose folder** | a folder already laid out the way this workbench expects | `POST /folder` |
+| **Analyze with model** | a folder that is not — letters in PDF or Word, records the reader cannot parse, a tree nobody organised | `POST /analyze` |
+
+Both start with the deterministic reader. The assisted route then asks the model the harness
+is running what the folder holds, and merges that answer over the reader's findings rather
+than replacing them.
 
 ```bash
-python tools/inventory.py <project-folder> out/inventory.json   # describe the folder
+python tools/inventory.py <project-folder> out/inventory.json      # describe the folder
+python tools/merge_config.py out/discovered.json out/analysed.json out/workbench.config.json
 ```
 
 `tools/inventory.py` writes a bounded description: per-directory file counts and a few
-sample names, the header block of a spread of markdown documents, and the sheet names plus
-first rows of a spread of workbooks. Ceilings (`MAX_WORKBOOKS`, `MAX_MARKDOWN`, …) keep it
-inside a prompt, and the document records `truncated` / `dropped` rather than silently
-losing half the corpus.
+sample names, the header block of a spread of documents, and the sheet names plus first rows
+of a spread of workbooks. Ceilings (`MAX_WORKBOOKS`, `MAX_MARKDOWN`, …) keep it inside a
+prompt, and the document records `truncated` / `dropped` rather than silently losing half the
+corpus. Documents are read through `tools/docread.py`, which handles `.md`, `.txt`, `.docx`
+and `.pdf`; a scanned PDF with no text layer is reported as such rather than read as noise.
 
 `analyze.js` sends that description to `ctx.get('llm').stream(...)` on the route
 `ctx.get('agentDefaultModel').currentSelection()` returns — the provider, model and
 reasoning effort the conversation is already using — and reads back a configuration object.
 `tidy()` then repairs only the answer's *formatting* (paths relative and forward-slashed,
-numbers finite and positive, contract ids that exist) and the extractor runs normally, so
-every figure on the page still comes out of a file.
+numbers finite and positive, contract ids that exist).
+
+`tools/merge_config.py` decides what survives. The rule is that a fact read out of a file
+beats a judgement formed from a summary of the folder:
+
+* the reader keeps every price, currency, sheet name, folder path and count it established;
+* the model supplies what the reader could not recognise — a series under an unexpected
+  name, a register the walker passed over — and the names it could only see as reference
+  codes (`HALO`, `NORV` become the organisations on the letterheads);
+* a contract's price and currency are never taken from the model;
+* a series the reader found keeps its folder and series key; only its contract attribution
+  and a role-guessed label may be corrected, because the model read the documents;
+* two parties describing the same organisation are folded into one entry, and a contract
+  that named the folded-away id is re-pointed at the survivor.
+
+The extractor then runs against the merged configuration, so every figure on the page still
+comes out of a file.
 
 It runs automatically when the deterministic reader recognised nothing, and can be forced
 from the interface:
