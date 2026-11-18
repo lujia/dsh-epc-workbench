@@ -214,6 +214,7 @@ function readSource() {
       folder: 'D:/projects/coal-yard',
       builtAt: '2026-11-15T06:31:00.000Z',
       notes: gaps,
+      demo: gapsMode ? ['letters', 'defects', 'payments', 'retention', 'certificate', 'mainContract', 'docs', 'contracts', 'project'] : [],
       found: ['payment register: IPCs/CYE. Interim Payment Records - 260929.xlsx (sheets ipc=Interim Payment to ADVE, employer=Interim Payment from CEB, monthly=Monthly Interim Payment Records)',
               'currencies named by the certificate header: USD, LKR, JPY',
               'main contract number: CEB/DGM/GP/2019/01'],

@@ -203,7 +203,11 @@ window.__ModuleLoader__.load({
 .epc-src-when{font:500 10.5px/1 var(--epc-mono);color:var(--epc-dim);white-space:nowrap}
 .epc-src-busy{display:flex;align-items:center;gap:6px;color:var(--epc-accent);font-weight:600;white-space:nowrap}
 .epc-src-busy .epc-dot{animation:epc-pulse 1.1s ease-in-out infinite}
-.epc-src-err{color:var(--epc-crit);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:38ch}
+.epc-src-err{color:var(--epc-crit);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:52ch}
+.epc-src-demo{appearance:none;border:1px solid var(--epc-line2);border-radius:99px;background:transparent;color:var(--epc-muted);font:600 10px/1 var(--epc-mono);letter-spacing:.04em;padding:4px 8px;cursor:pointer;white-space:nowrap}
+.epc-src-demo:hover{border-color:var(--epc-line2);color:var(--epc-text)}
+.epc-src-demo.on{color:var(--epc-text);border-color:var(--epc-line2);background:var(--epc-panel)}
+.epc-notes-demo{color:var(--epc-muted)}
 .epc-src-notes{appearance:none;border:1px solid var(--epc-line2);border-radius:99px;background:transparent;color:var(--epc-warn,var(--epc-accent));font:600 10px/1 var(--epc-mono);letter-spacing:.04em;padding:4px 8px;cursor:pointer;white-space:nowrap}
 .epc-src-notes:hover{background:var(--epc-hover)}
 .epc-src-notes.on{background:var(--epc-panel);border-color:var(--epc-warn,var(--epc-accent))}
@@ -865,6 +869,20 @@ window.__ModuleLoader__.load({
 			'src.notes.hint': 'The folder was read. These are the records it does not hold, so the page is showing what it could find.',
 			'src.notes.title': 'Not found in this folder ({n})',
 			'src.notes.empty.hint': 'Nothing in this folder matched the reader. If its letters are in PDF or Word, or its records are kept some other way, try Analyze with model.',
+			'src.demo': 'demo: {n}',
+			'src.demo.hint': 'This page is your folder, with the demo dataset standing in for the sections it does not hold: {list}. The demo figures are labelled in the list and are not measurements of your project.',
+			'src.demo.title': 'Standing in from the demo dataset ({n})',
+			'src.section.letters': 'correspondence',
+			'src.section.meetings': 'meetings',
+			'src.section.defects': 'defects',
+			'src.section.payments': 'payments',
+			'src.section.retention': 'retention',
+			'src.section.certificate': 'certificate',
+			'src.section.mainContract': 'main contract',
+			'src.section.docs': 'documents',
+			'src.section.contracts': 'contract register',
+			'src.section.project': 'project name',
+			'src.timeout': 'Still reading ({phase}) after fifteen minutes. The build is not lost — reopen this page to see it when it finishes.',
 			'src.found': 'read {n} part(s)',
 			'src.found.hint': 'Everything the reader recognised in this folder. Nothing was missing, which is why there is no list of gaps.',
 			'src.found.title': 'Read from this folder ({n})',
@@ -1214,6 +1232,20 @@ window.__ModuleLoader__.load({
 			'src.notes.hint': '文件夹已读取。以下是该文件夹中没有的记录，页面显示的是能够找到的部分。',
 			'src.notes.title': '该文件夹中未找到（{n} 项）',
 			'src.notes.empty.hint': '该文件夹中没有可被常规读取识别的内容。若函件为 PDF 或 Word，或记录以其他方式保存，请尝试“用大模型分析”。',
+			'src.demo': '演示 {n} 项',
+			'src.demo.hint': '本页为您的文件夹内容，其中该文件夹没有的区块由演示数据集补齐：{list}。演示数据在列表中已标注，并非您项目的实际计量。',
+			'src.demo.title': '由演示数据集补齐（{n} 项）',
+			'src.section.letters': '往来函件',
+			'src.section.meetings': '会议纪要',
+			'src.section.defects': '缺陷',
+			'src.section.payments': '付款',
+			'src.section.retention': '保留金',
+			'src.section.certificate': '证书',
+			'src.section.mainContract': '主合同',
+			'src.section.docs': '文档',
+			'src.section.contracts': '合同登记',
+			'src.section.project': '项目名称',
+			'src.timeout': '已读取十五分钟仍在进行（{phase}）。构建不会丢失——完成后再打开本页即可看到结果。',
 			'src.found': '已读取 {n} 项',
 			'src.found.hint': '该文件夹中识别到的全部内容。没有缺失项，因此不显示缺失清单。',
 			'src.found.title': '已从该文件夹读取（{n} 项）',
@@ -3351,12 +3383,23 @@ function contractList(data) {
 			return cut >= 0 && cut < text.length - 1 ? text.slice(cut + 1) : text;
 		}
 
+		function reasonText(error) {
+			/* A failure has a cause and the cause has words. Printing only 'could not
+			   read that folder' made every failure look like the same failure, so a
+			   reader could not tell a folder holding no records from one still being
+			   written to. The first line names it; the rest stays in the title. */
+			var text = String(error || '').split('\n')[0].trim();
+			if (!text) return t('src.failed');
+			return text.length > 120 ? text.slice(0, 117) + '…' : text;
+		}
+
 		function SourceBar(props) {
 			var active = props.active;
 			var busy = props.busy;
 			var error = props.error;
 			var notes = props.notes || [];
 			var found = props.found || [];
+			var demo = (active && active.demo) || [];
 			var isFolder = active && active.source === 'folder';
 			return h('div', { className: 'epc-src' + (isFolder ? ' on' : '') },
 				h('span', { className: 'epc-src-k' }, t('src.title')),
@@ -3366,10 +3409,25 @@ function contractList(data) {
 						? h('span', { className: 'epc-src-when' }, t('src.read', { date: shortDate(String(active.builtAt).slice(0, 10)) }))
 						: h('span', { className: 'epc-src-when' }, t('src.bundled.note'))),
 				error !== null && error !== void 0
-					? h('span', { className: 'epc-src-err', title: String(error) }, t('src.failed'))
+					/* The reason, not a category: 'could not read that folder' was the
+					   same sentence for a timeout, a locked workbook and an empty
+					   directory, and none of them was actionable. The full text stays
+					   in the title; what is printed is the part that names the cause. */
+					? h('span', { className: 'epc-src-err', title: String(error) }, reasonText(error))
 					: null,
 				busy
 					? h('span', { className: 'epc-src-busy' }, h('i', { className: 'epc-dot' }), t('src.reading'))
+					: null,
+				demo.length > 0
+					/* The page is a real read of the folder with the demo standing in
+					   for the sections it does not hold. Saying so beside the folder
+					   name is the difference between 'this project has no defects' and
+					   'this folder has no defect register in it'. */
+					? h('button', {
+						className: 'epc-src-demo' + (props.notesOpen ? ' on' : ''),
+						onClick: props.onToggleNotes,
+						title: t('src.demo.hint', { list: demo.map(function (k) { return t('src.section.' + k); }).join(' · ') })
+					}, t('src.demo', { n: demo.length }))
 					: null,
 				notes.length > 0
 					/* A folder whose records differ from the ones this workbench was
@@ -3416,7 +3474,8 @@ function contractList(data) {
 		function NoteList(props) {
 			var notes = props.notes || [];
 			var found = props.found || [];
-			if (notes.length === 0 && found.length === 0) return null;
+			var demo = props.demo || [];
+			if (notes.length === 0 && found.length === 0 && demo.length === 0) return null;
 			return h('div', { className: 'epc-notes' },
 				notes.length > 0
 					? h('div', { className: 'epc-notes-k' }, t('src.notes.title', { n: notes.length }))
@@ -3435,6 +3494,17 @@ function contractList(data) {
 				found.length > 0
 					? h('ul', { className: 'epc-notes-l epc-notes-ok' }, found.map(function (n, i) {
 						return h('li', { key: 'f' + i }, n);
+					}))
+					: null,
+				demo.length > 0
+					/* Which parts of the page are the demo standing in. Printed last,
+					   so the reader first sees what was actually read out of their
+					   own folder and only then what was not. */
+					? h('div', { className: 'epc-notes-k' }, t('src.demo.title', { n: demo.length }))
+					: null,
+				demo.length > 0
+					? h('ul', { className: 'epc-notes-l epc-notes-demo' }, demo.map(function (n, i) {
+						return h('li', { key: 'd' + i }, n);
 					}))
 					: null,
 				props.hint
@@ -3540,11 +3610,18 @@ function contractList(data) {
 						if (line.length > 0) setReadProgress(line[line.length - 1].trim().slice(0, 120));
 					}
 					if (b && b.phase === 'model') setReadProgress(t('src.analyze.wait'));
-					if (b && b.status === 'running' && tries < 600) {
+					if (b && b.status === 'running' && tries < 900) {
 						return new Promise(function (resolve) { setTimeout(resolve, 1000); })
 							.then(function () { return waitForBuild(folder, tries + 1); });
 					}
 					setReading(false);
+					if (b && b.status === 'running') {
+						/* Still working after fifteen minutes. Say which stage it is in
+						   rather than showing a generic failure: the read is not lost,
+						   and pressing the button again would start a second one. */
+						setSourceError(t('src.timeout', { phase: b.phase || 'reading' }));
+						return null;
+					}
 					if (b && b.status === 'error') {
 						setSourceError(b.error || t('src.failed'));
 						return null;
@@ -3619,6 +3696,15 @@ function contractList(data) {
 				if (!isFolder || readFound.length > 0) return null;
 				return t('src.notes.empty.hint');
 			}, [source, readFound]);
+			/* The sections standing in from the demo, named in the gap list. The
+			   chip in the strip says how many; this says which, because '4 sections
+			   from the demo' is useless without knowing whether payments is one of
+			   them. */
+			var readDemo = useMemo(function () {
+				return ((source && source.active && source.active.demo) || []).map(function (k) {
+					return t('src.section.' + k);
+				});
+			}, [source]);
 			var counts = data ? {
 				correspondence: data.letters.total,
 				meetings: data.meetings.total,
@@ -3756,7 +3842,7 @@ function contractList(data) {
 								onAnalyze: analyzeFolder,
 								onReset: resetSource
 							}),
-							notesOpen ? h(NoteList, { notes: readNotes, found: readFound, hint: readHint }) : null),
+							notesOpen ? h(NoteList, { notes: readNotes, found: readFound, demo: readDemo, hint: readHint }) : null),
 						h('div', { className: 'epc-scroll' }, body))),
 
 				h('div', { className: 'epc-status' },

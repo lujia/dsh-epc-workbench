@@ -267,11 +267,46 @@ is invented: when the model cannot read the folder, the page says which parts ar
 ## Reading a folder from the interface
 
 `POST /plugins/epc-workbench/folder` with `{"folder": "<absolute path>"}` starts a
-background build and answers `202`; `GET /plugins/epc-workbench/state` reports
-`{active, build}` with the extractor's tail output while it runs; `POST /plugins/epc-workbench/reset`
-drops the folder and serves the bundled dataset again. The chosen folder is remembered in
-`$DSH_HOME/cache/epc-workbench/state.json`, and a folder that no longer exists falls back
-to the bundled dataset instead of breaking the page.
+background build and answers `202`; `POST /plugins/epc-workbench/analyze` takes the same
+body and starts the model-assisted build. `GET /plugins/epc-workbench/state` reports
+`{active, build}` with the extractor's tail output while it runs;
+`POST /plugins/epc-workbench/reset` drops the folder and serves the bundled dataset again.
+The chosen folder is remembered in `$DSH_HOME/cache/epc-workbench/state.json`, and a
+folder that no longer exists falls back to the bundled dataset instead of breaking the
+page.
+
+### No folder is refused
+
+Every build ends in a merged dataset, never in an error sentence. `runBuild` has one exit:
+`tools/merge_dataset.py` is run over whatever the extractor wrote (an empty, correctly
+shaped dataset is written first when the extractor produced nothing), and each section is
+taken whole from the folder or whole from the bundled demo:
+
+| payload field | meaning |
+| --- | --- |
+| `origins` | section → `folder` \| `demo` \| `empty` |
+| `demoSections` | the sections standing in from the bundled dataset |
+| `folderSections` | the sections the folder supplied |
+
+Sections are `contracts`, `letters`, `meetings`, `defects`, `payments`, `retention`,
+`certificate`, `mainContract`, `docs` and `project`. The index file is rebuilt to match:
+rows of a kind whose section was substituted come from the demo, so the search palette and
+the tables cannot disagree about what the project holds. The folder's own index rows are
+copied verbatim — no de-duplication, because two letters may legitimately carry one
+reference on one day and dropping either would make the record count lie.
+
+Two rules make the mixed page honest:
+
+* **A contract counts only when it has a real number.** `normalise()` fills a missing
+  contract number with the contract id, so a folder that never named its contracts still
+  arrives with `MAIN`/`MAIN`. `has_contracts()` rejects that placeholder; the register,
+  the parties, the currencies and the project identity then come from the demo as a whole.
+* **The series still come from the folder.** When the register is the demo's, the folder's
+  letter series and minute books are kept and re-pointed at the demo's main contract, so
+  eight real letters do not vanish behind a demo caption they did not come from.
+
+The strip then shows `demo: <n>` beside the missing-part count; both open the same list,
+which names the sections in each group.
 
 ## Regenerating the demo dataset
 

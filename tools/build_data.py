@@ -97,6 +97,26 @@ YEAR_MIN, YEAR_MAX = 2019, 2027
 
 HEADER_KEYS = {"DocType", "Direction", "LetterNo", "Subject", "SourceFile", "Role", "Seq"}
 
+# A letter typed by a person writes `Ref:`, `Our Ref:`, `Your Ref:` or `Subject:`
+# instead of the bracketed keys the OCR pass emits. Both spellings name the same
+# fields, so the header reader accepts either — a folder of Word letters used to
+# be read as a folder with no letters in it because only the bracketed form was
+# understood.
+HEADER_ALIASES = {
+    "doctype": "DocType",
+    "direction": "Direction",
+    "letterno": "LetterNo",
+    "ref": "LetterNo",
+    "refno": "LetterNo",
+    "referenceno": "LetterNo",
+    "subject": "Subject",
+    "seq": "Seq",
+}
+
+# On a flattened line the reference stops where the next header starts, so the
+# value is cut at the first `Date:`/`Subject:`/`Ref:` that follows it.
+HEADER_VALUE_STOP = re.compile(r"(?i)\s+(?:date|subject|ref(?:erence)?\s*no\.?|our\s*ref|your\s*ref)\s*[:\-–].*$")
+
 
 # --------------------------------------------------------------------------- resolution
 # A workbench pointed at a folder it was not written for meets the same records
@@ -340,9 +360,33 @@ def letter_header(path):
         head = head.replace(" [", "\n[")
     out = {}
     for line in head.splitlines()[:24]:
-        m = re.match(r"\[(\w+)\]\s*(.*)", line)
-        if m and m.group(1) in HEADER_KEYS:
-            out[m.group(1)] = m.group(2).strip()
+        # Two header spellings are in the wild: the extracted markdown of a scan
+        # writes `[LetterNo] NORV-HALO-SUB-R-009`, while a letter typed in Word
+        # writes `Ref: …` / `Subject: …` on its own line. Both record the same
+        # facts, so both are read rather than the reader insisting on its own
+        # format — that insistence is what made a folder of Word letters look
+        # like a folder with no letters in it.
+        text = line.strip()
+        if not text:
+            continue
+        key = value = None
+        m = re.match(r"\[(\w+)\]\s*(.*)", text)
+        if m is not None:
+            key, value = m.group(1), m.group(2)
+        else:
+            m = re.match(r"(?i)(doctype|direction|letter\s*no\.?|ref(?:erence)?\s*no\.?|"
+                         r"subject|seq)\s*[:\-–]\s*(.*)", text)
+            if m is not None:
+                key = HEADER_ALIASES.get(re.sub(r"[^a-z]", "", m.group(1).lower()), m.group(1))
+                value = m.group(2)
+        if key is None:
+            continue
+        key = HEADER_ALIASES.get(key, key)
+        if key not in HEADER_KEYS:
+            continue
+        value = HEADER_VALUE_STOP.sub("", value or "").strip()
+        if value and key not in out:
+            out[key] = value
     i = head.find("[OCR_TEXT]")
     out["_body"] = head[i + 10:] if i >= 0 else head
     return out

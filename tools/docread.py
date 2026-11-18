@@ -98,7 +98,13 @@ def pdf_text(path, limit=4000):
 
 
 def docx_text(path, limit=4000):
-    """Paragraph text of a Word document, in document order."""
+    """Paragraph text of a Word document, in document order.
+
+    Paragraphs keep their line breaks: a letter's `[LetterNo]` header is one
+    paragraph and its value must not run on into the date and the subject of the
+    paragraph below, which is what happens when the document is flattened into a
+    single line.
+    """
     try:
         from docx import Document
     except Exception:
@@ -130,7 +136,7 @@ def docx_text(path, limit=4000):
                     break
             if total >= limit:
                 break
-    return re.sub(r"\s+", " ", " ".join(out)).strip()[:limit]
+    return "\n".join(out)[:limit]
 
 
 def plain_text(path, limit=4000):

@@ -69,6 +69,32 @@ away from the project, and the page reloads onto it. **The project folder is onl
 read.** The strip then names the folder and the time it was read, and lists anything the
 reader could not establish, so a blank field is never mistaken for a zero.
 
+### A folder that holds only some of the records
+
+No folder is refused. Whatever the reader (or the model) could not find stays as the
+bundled demo dataset, and the strip says how much is standing in:
+
+```
+PROJECT  field-notes  read 18 Nov 2026  [ demo: 7 ]  [ 4 part(s) not found ]   [ Choose folder ] ...
+```
+
+`demo: 7` opens a list naming the sections that came from the demo — correspondence,
+payments, contract register — beside the ones that came from the folder. A section is
+never half one and half the other, and a section is never invented: `tools/merge_dataset.py`
+takes each section whole from the folder or whole from the demo and records which in
+`origins` / `demoSections`, so the interface can label it and the payload stays auditable.
+
+The contract register and the project identity travel with the demo when the folder did
+not produce a register of its own: a register of `MAIN`/`P01`/`P02` with the demo's
+payments priced against it would be a page that names one project and prices another.
+The folder's own letter series and minute books still appear, attributed to the main
+contract, under the labels the model gave them.
+
+An empty directory is therefore a `demo: 10` page rather than an error, and a folder
+holding nothing but two Word letters is a page with two real letters and a demo payments
+tab. The only messages left are the ones that say *what* could not be read — a timeout, a
+locked workbook, a folder that is not a folder.
+
 A real project takes a minute or two: the build runs in the background and the page polls
 `/plugins/epc-workbench/state`, showing the extractor's last progress line while it works.
 Two clicks cannot run two builds — the second answers 409 and the page keeps waiting.

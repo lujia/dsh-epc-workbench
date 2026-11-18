@@ -139,6 +139,8 @@ const active = {
 	notes: [],
 	found: [],
 	model: null,
+	// Sections the picked folder did not provide, standing in from the demo.
+	demo: [],
 };
 
 const build = {
@@ -177,7 +179,7 @@ async function saveState() {
 		await mkdir(cacheRoot(), { recursive: true });
 		await writeFile(
 			await stateFile(),
-			JSON.stringify({ dir: active.dir, source: active.source, folder: active.folder, builtAt: active.builtAt, notes: active.notes, found: active.found, model: active.model }, null, 1),
+			JSON.stringify({ dir: active.dir, source: active.source, folder: active.folder, builtAt: active.builtAt, notes: active.notes, found: active.found, model: active.model, demo: active.demo }, null, 1),
 			'utf8',
 		);
 	} catch {
@@ -198,6 +200,7 @@ async function restoreState() {
 			active.notes = Array.isArray(raw.notes) ? raw.notes : [];
 			active.found = Array.isArray(raw.found) ? raw.found : [];
 			active.model = typeof raw.model === 'string' ? raw.model : null;
+			active.demo = Array.isArray(raw.demo) ? raw.demo : [];
 		}
 	} catch {
 		/* no previous build, or it was cleaned up: the bundled dataset is the default */
@@ -350,6 +353,43 @@ async function datasetIsEmpty(dir) {
 }
 
 /**
+ * Stand the bundled demo in for whatever the folder did not provide.
+ *
+ * A folder that yields eleven letters and no defect register is not a failure, and
+ * it is not a project without defects either. Serving it as-is prints empty cards
+ * that read as zeros; refusing it leaves the reader with nothing after waiting for
+ * a build. `tools/merge_dataset.py` takes each section from the folder when the
+ * folder filled it and from the demo when it did not, and records which — so the
+ * strip can say which parts of the page are standing in.
+ */
+async function mergeWithDemo(python, dataDir) {
+	const demo = datasetPaths(DATA_DIR);
+	const folder = datasetPaths(dataDir);
+	if (!(await exists(folder.data))) {
+		// Nothing was written at all: a folder the reader could not describe and the
+		// model could not interpret. The merge still needs a dataset to stand on, and
+		// an empty one is the honest input — every section then comes from the demo.
+		await mkdir(dataDir, { recursive: true });
+		await writeFile(
+			folder.data,
+			JSON.stringify({ generated: new Date().toISOString(), project: {}, currencies: [], contracts: [], letters: {}, meetings: {}, defects: {}, payments: {}, retention: {}, certificate: {}, mainContract: null, docs: {}, defectRows: [], warnings: [] }),
+			'utf8',
+		);
+		if (!(await exists(folder.index))) await writeFile(folder.index, '[]', 'utf8');
+	}
+	const result = await run(
+		[python, join(ROOT, 'tools', 'merge_dataset.py'), folder.data, demo.data, dataDir],
+		ROOT,
+	);
+	build.log += result.stdout + result.stderr;
+	if (result.code !== 0) return [];
+	const line = /^demo sections: (.*)$/m.exec(result.stdout || '');
+	const text = line ? line[1].trim() : '';
+	if (!text || text === 'none') return [];
+	return text.split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+/**
  * Ask the model what this folder holds, and write the configuration it answers
  * with. Returns `{ config, model, notes }`: `config` is null when the model could
  * not describe the folder, and the caller then keeps whatever the deterministic
@@ -428,6 +468,15 @@ async function runBuild(ctx, folder, options = {}) {
 	let found = [];
 	let model = null;
 
+	// Every way out of this function ends the same way: whatever the folder did
+	// provide, with the demo standing in for the rest. Nothing here throws on a
+	// folder that merely contains no records — the reported 'could not read that
+	// folder' was that throw, and a folder of invoices is not a broken read.
+	const finish = async (dir) => {
+		const demo = await mergeWithDemo(python, dir);
+		return { dir, notes, found, model, demo, partial: false };
+	};
+
 	// Both buttons start from the same place: what the files themselves say. The
 	// difference is what happens next — 'Choose folder' stops when that reading is
 	// usable, 'Analyze with model' always asks the model on top of it. Running
@@ -440,26 +489,27 @@ async function runBuild(ctx, folder, options = {}) {
 	);
 	build.log += discover.stdout + discover.stderr;
 	const discoveredOk = discover.code === 0;
-	if (!discoveredOk && !force) {
-		throw new Error(`discovery failed (exit ${discover.code}): ${(discover.stderr || discover.stdout).trim().slice(-400)}`);
+	if (!discoveredOk) {
+		// Not fatal any more. A folder discovery could not describe still gets one
+		// chance from the model, and if that fails too the page is the demo with a
+		// note saying why, rather than a strip that says it could not read anything.
+		notes.push(`the reader could not describe this folder: ${(discover.stderr || discover.stdout).trim().slice(-300)}`);
+		build.log += 'the reader could not describe this folder, asking the model\n';
 	}
 	if (discoveredOk) {
 		({ notes, found } = parseDiscoveryNotes(discover.stdout));
-	} else {
-		notes.push(`the reader could not describe this folder: ${(discover.stderr || discover.stdout).trim().slice(-300)}`);
 	}
 
-	if (!force) {
+	if (!force && discoveredOk) {
 		const first = await runExtractor(python, cfgPath, outDir);
 		if (first.result.code !== 0) {
 			// A run that read most of the corpus and then tripped over one workbook is
 			// a partial result, not a failed read: show whatever was written rather than
 			// leaving the reader looking at the previous project.
-			if (await exists(datasetPaths(first.built).data)) {
-				notes.push(`the reader stopped early: ${(first.result.stderr || first.result.stdout).trim().slice(-300)}`);
-				return { dir: first.built, notes, found, model, partial: true };
-			}
-			throw new Error(`extraction failed (exit ${first.result.code}): ${(first.result.stderr || first.result.stdout).trim().slice(-400)}`);
+			notes.push(`the reader stopped early: ${(first.result.stderr || first.result.stdout).trim().slice(-300)}`);
+			const out = await finish(first.built);
+			out.partial = true;
+			return out;
 		}
 		mergeExtractorNotes(first.result.stdout, notes);
 		// Two ways to know the reader did not understand this folder: it recognised
@@ -468,7 +518,7 @@ async function runBuild(ctx, folder, options = {}) {
 		// user would see is the one they reported as a failure, so ask the model
 		// before giving up on the folder.
 		if (found.length > 0 && !(await datasetIsEmpty(first.built))) {
-			return { dir: first.built, notes, found, model };
+			return finish(first.built);
 		}
 		build.log += 'nothing here matched the reader, asking the model\n';
 	}
@@ -480,11 +530,11 @@ async function runBuild(ctx, folder, options = {}) {
 	model = analysis.model;
 	for (const note of analysis.notes || []) if (!notes.includes(note)) notes.push(note);
 	if (!analysis.config) {
-		if (force && !discoveredOk) {
-			throw new Error((analysis.notes || []).join('; ') || 'the model could not describe this folder');
-		}
 		if (!discoveredOk) {
-			return { dir: join(outDir, 'data'), notes, found, model };
+			// Nothing was read and the model could not describe it: the demo stands in
+			// for every section, and the notes say why. The reader gets a page and the
+			// reason, instead of an error and no page.
+			return finish(join(outDir, 'data'));
 		}
 		// The model had nothing to add but the reader's own answer still stands:
 		// extract with what discovery wrote rather than failing the whole read.
@@ -493,23 +543,17 @@ async function runBuild(ctx, folder, options = {}) {
 
 	const second = await runExtractor(python, cfgPath, outDir);
 	if (second.result.code !== 0) {
-		if (await exists(datasetPaths(second.built).data)) {
-			notes.push(`the reader stopped early: ${(second.result.stderr || second.result.stdout).trim().slice(-300)}`);
-			return { dir: second.built, notes, found, model, partial: true };
-		}
-		throw new Error(`extraction failed (exit ${second.result.code}): ${(second.result.stderr || second.result.stdout).trim().slice(-400)}`);
+		notes.push(`the reader stopped early: ${(second.result.stderr || second.result.stdout).trim().slice(-300)}`);
+		const out = await finish(second.built);
+		out.partial = true;
+		return out;
 	}
 	mergeExtractorNotes(second.result.stdout, notes);
 	if (analysis.config) {
 		const added = analysis.mergedFields != null ? ` (${analysis.mergedFields} field(s) added)` : '';
 		found.push(`the layout was described by ${model}${added}`);
 	}
-
-	const paths = datasetPaths(second.built);
-	if (!(await exists(paths.data)) || !(await exists(paths.index))) {
-		throw new Error('the extractor finished without writing a dataset');
-	}
-	return { dir: second.built, notes, found, model };
+	return finish(second.built);
 }
 
 async function startBuild(ctx, folder, options = {}) {
@@ -531,6 +575,7 @@ async function startBuild(ctx, folder, options = {}) {
 			active.notes = result.notes;
 			active.found = result.found;
 			active.model = result.model || null;
+			active.demo = result.demo || [];
 			// Drop every cached parse: the same path can be rebuilt with new numbers.
 			cache.clear();
 			build.status = 'ready';
@@ -562,6 +607,7 @@ function handleState(req, res) {
 			notes: active.notes,
 			found: active.found,
 			model: active.model,
+			demo: active.demo,
 		},
 		build: {
 			status: build.status,
@@ -634,6 +680,7 @@ async function handleReset(req, res) {
 	active.builtAt = null;
 	active.notes = [];
 	active.found = [];
+	active.demo = [];
 	// The last build's outcome belongs to the folder that was just dropped; keeping
 	// it would leave the page reporting a finished read of a project it no longer shows.
 	build.status = 'idle';
