@@ -171,6 +171,14 @@ tool. For that case the host asks the model the harness is already running:
 1. `tools/inventory.py` describes the folder — per-directory file counts and sample names,
    the header block of a spread of documents, the sheet names and first rows of a spread of
    workbooks. Every ceiling is capped and the document says when it was cut short.
+   A document's header block is the right sample for a letter, whose identity is in its first
+   two lines, and useless for a contract, which states its price on page three. So each
+   sampled document also carries an `evidence` block from `tools/evidence.py`: a full read of
+   that document, reduced to the passages around amounts, the party preamble, priced terms
+   (`advance payment`, `retention`, `liquidated damages`, `price adjustment`, …) and document
+   numbers. Passages are clipped *around* the match rather than from the start of the line,
+   because a PDF extraction puts a whole clause on one line and the figure can sit hundreds
+   of characters into it.
 2. `analyze.js` asks the running model, with that description, which folder is which kind
    of record and which sheet holds what, and gets back a configuration in the same shape
    `tools/epc_config.py` reads.
@@ -178,7 +186,9 @@ tool. For that case the host asks the model the harness is already running:
    every fact it read out of a file — prices, currencies, sheet names, folder paths, counts
    — and the model supplies the parts the reader could not recognise, plus the names it
    could only read as reference codes. A model answer that names the wrong workbook cannot
-   overwrite a sheet the reader opened.
+   overwrite a sheet the reader opened. A price fills a blank and never replaces a figure the
+   reader parsed; a contract number fills a placeholder (`Main contract`, or the contract's
+   own id) and never replaces a real number; a currency fills an empty field only.
 4. The extractor runs against the merged configuration, so the page is built from the real
    records, not from the model's prose. Only the *layout* and the *identity* are the model's
    judgement; every number on the page is still read out of the file it comes from.

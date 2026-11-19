@@ -159,10 +159,21 @@
 				{ label: t('ov.kpi.overdue'), value: grouped(defects.overdueCount), unit: null, sub: t('sub.ofopen', { p: pct(defects.overdueCount, defects.openCount) }) }
 			];
 
+			/* A project whose name already names the site prints it twice — the main
+			   contract here reads 'Enhancing the Handling Capacity of Coal Yard,
+			   Lakvijaya Power Station' and the site is 'Lakvijaya Power Station'.
+			   Drop the site when the name already carries it. */
+			var headName = String(project.name || '');
+			var headSite = String(project.site || '');
+			if (headSite && headName.toLowerCase().indexOf(headSite.toLowerCase()) >= 0) headSite = '';
+			var headSub = headSite
+				? t('ov.sub', { name: headName, site: headSite })
+				: headName;
+
 			return h('div', { className: 'epc-wrap' },
 				h(PageHead, {
 					title: t('ov.title'),
-					sub: t('ov.sub', { name: project.name, site: project.site })
+					sub: headSub
 				}),
 
 				h(ContractBar, { data: data, scope: scope, onScope: props.onScope }),

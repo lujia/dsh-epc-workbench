@@ -136,27 +136,61 @@ def sections_of(data):
     return {name: bool(test(data)) for name, test in PRESENCE.items()}
 
 
-def merge_taxonomy(folder, demo, origins):
-    """The vocabulary for a page whose contracts came from the demo.
+def _kind_order(contracts):
+    """Contract ids by kind, in register order: two mains, two subs, and so on."""
+    out = {}
+    for c in contracts or []:
+        out.setdefault(str(c.get("kind") or ""), []).append(str(c.get("id") or ""))
+    return out
 
-    The contracts, the parties and the currency table have to be the demo's — the
-    register is the demo's, so every id the interface joins on is the demo's. The
-    SERIES are not: they are the folder's own, and dropping them would leave eight
-    real letters and one real minute book on the page with no label and no scope
-    to belong to, while the demo's five hundred letters appear under a caption
-    that names them. So the folder's series travel, re-pointed at the main
-    contract, and only the demo's series are added where the folder has none.
+
+def _series_remap(demo_contracts, contracts):
+    """Which id a demo series must point at once the register is the folder's.
+
+    A series carries the contract it belongs to, and a substituted letters section
+    brings the demo's series keys with it. If the register is the folder's, those
+    ids name contracts the page no longer has, and every letter row is filtered out
+    by a scope it cannot match. Contracts are matched by kind and order, because
+    that is what survives a rename: the first subcontract is the first subcontract
+    whatever it is called.
+    """
+    demo_by_kind = _kind_order(demo_contracts)
+    now_by_kind = _kind_order(contracts)
+    remap = {}
+    for kind, ids in demo_by_kind.items():
+        mine = now_by_kind.get(kind) or []
+        for index, old in enumerate(ids):
+            if index < len(mine):
+                remap[old] = mine[index]
+            elif mine:
+                remap[old] = mine[-1]
+    return remap
+
+
+def merge_taxonomy(folder, demo, origins, contracts=None):
+    """The vocabulary for a page whose sections do not all come from one place.
+
+    Every id the interface joins on has to resolve, and the series labels come from
+    here. A substituted SECTION brings its own records but not its own vocabulary:
+    a folder that holds contracts but no letters gets the demo's nine hundred and
+    ninety letters with no label at all unless this runs, and a folder that holds
+    letters but no contracts keeps eight real letters on a page whose register is
+    the demo's. So the contracts and parties are whatever the register is, and the
+    series are the folder's own where the folder has them, re-pointed at the main
+    contract; only a section that came from the demo contributes the demo's series.
     """
     demo_tax = (demo or {}).get("taxonomy") or {}
     folder_tax = (folder or {}).get("taxonomy") or {}
+    contracts = contracts if contracts is not None else (folder_tax.get("contracts") or [])
+    remap = _series_remap(demo_tax.get("contracts") or [], contracts)
     main_id = None
-    for c in (demo_tax.get("contracts") or []):
+    for c in contracts:
         if c.get("kind") == "main":
             main_id = c.get("id")
             break
     out = {
-        "contracts": demo_tax.get("contracts") or [],
-        "parties": demo_tax.get("parties") or [],
+        "contracts": contracts or [],
+        "parties": folder_tax.get("parties") or (demo_tax.get("parties") or []),
         "letters": [],
         "meetings": [],
     }
@@ -166,15 +200,82 @@ def merge_taxonomy(folder, demo, origins):
             item["contract"] = main_id or item.get("contract")
             out["letters"].append(item)
     else:
-        out["letters"] = list(demo_tax.get("letters") or [])
+        for entry in (demo_tax.get("letters") or []):
+            item = dict(entry)
+            item["contract"] = remap.get(str(item.get("contract") or ""), main_id)
+            out["letters"].append(item)
     if origins.get("meetings") == "folder":
         for entry in (folder_tax.get("meetings") or []):
             item = dict(entry)
             item["contract"] = main_id or item.get("contract")
             out["meetings"].append(item)
     else:
-        out["meetings"] = list(demo_tax.get("meetings") or [])
+        for entry in (demo_tax.get("meetings") or []):
+            item = dict(entry)
+            item["contract"] = remap.get(str(item.get("contract") or ""), main_id)
+            out["meetings"].append(item)
     return out
+
+
+def restate_records(contracts, data):
+    """The counts the register strip prints, recounted from what the page shows.
+
+    The register's own counters are the folder's: a contracts-only folder certifies
+    nothing, so every contract reads zero, while the page beside it lists nine
+    hundred and ninety letters because that section came from the demo. A strip that
+    says '0 letters' next to a list of 990 is the kind of contradiction that makes a
+    reader stop trusting every other figure too.
+    """
+    tax = (data.get("taxonomy") or {})
+    letters = data.get("letters") or {}
+    meetings = data.get("meetings") or {}
+    certs_main = ((data.get("mainContract") or {}).get("totals") or {}).get("count") or 0
+    by_series = letters.get("bySeries") or {}
+    by_meeting = meetings.get("bySeries") or {}
+    per_letter = {}
+    per_meeting = {}
+    for entry in (tax.get("letters") or []):
+        cid = str(entry.get("contract") or "")
+        count = (by_series.get(entry.get("key")) or {}).get("count") or 0
+        per_letter[cid] = per_letter.get(cid, 0) + count
+    for entry in (tax.get("meetings") or []):
+        cid = str(entry.get("contract") or "")
+        count = (by_meeting.get(entry.get("key")) or {}).get("count") or 0
+        per_meeting[cid] = per_meeting.get(cid, 0) + count
+    retention = data.get("retention") or {}
+    out = []
+    for c in contracts or []:
+        row = dict(c)
+        cid = str(row.get("id") or "")
+        if row.get("kind") == "main":
+            row["records"] = certs_main
+        else:
+            rows = retention.get(cid) or []
+            row["records"] = len([r for r in rows if r.get("ipc")])
+        # Two counters, because the register tile prints them as two numbers and a
+        # meeting counted as a letter would make the tile disagree with the
+        # correspondence page that lists the letters.
+        row["letters"] = per_letter.get(cid, 0)
+        row["meetings"] = per_meeting.get(cid, 0)
+        out.append(row)
+    return out
+
+
+def stated_contract(contract):
+    """A price the documents state, as opposed to a block the extractor shaped.
+
+    The main contract's card is filled from the configuration, so it exists as an
+    object even when the folder stated no price at all — an object whose every
+    figure is null. That is the case the demo has to stand in for; a stated price
+    is the case it must not overwrite.
+    """
+    if not contract:
+        return False
+    for key in ("lkr", "usd", "revisedLkr", "originalLkr"):
+        value = contract.get(key)
+        if isinstance(value, (int, float)) and value > 0:
+            return True
+    return False
 
 
 def merge(folder, demo):
@@ -195,6 +296,18 @@ def merge(folder, demo):
     if origins.get("defects") == "demo" and demo is not None:
         out["defectRows"] = demo.get("defectRows") or []
 
+    # The main-contract section is two things: the price the contract was let at,
+    # and the certificates measured against it. A folder of contract documents
+    # states the first and holds none of the second, and the certificate series is
+    # one unbroken run — a demonstration certificate numbered IPA 14 beside a real
+    # contract number reads as a claim that this project has been certified fourteen
+    # times. So the price block travels with the folder and the certificates stay
+    # the demo's, where the strip's demo chip already says so.
+    folder_contract = ((folder.get("mainContract") or {}).get("contract")) or {}
+    if origins.get("mainContract") == "demo" and stated_contract(folder_contract):
+        out["mainContract"] = dict(out.get("mainContract") or {})
+        out["mainContract"]["contract"] = folder_contract
+
     # The register, the currency table and the labels come from the contract
     # section: a project whose packages were never found has no register of its
     # own, and an empty scope switcher would blank every other page. The identity
@@ -202,9 +315,16 @@ def merge(folder, demo):
     # party codes is the worst of both, a page that names one project and prices
     # another. So when the register is the demo's, the names, the parties, the
     # numbers and the values are all the demo's.
+    #
+    # The vocabulary, though, is rebuilt in EVERY merge, not only when the register
+    # came from the demo: a contracts-only folder has a register of its own and no
+    # letter series at all, and the demo's nine hundred and ninety letters would
+    # then appear on the page with no label and no scope to belong to.
+    if demo is not None:
+        out["taxonomy"] = merge_taxonomy(folder, demo, origins, out.get("contracts") or [])
+
     if not have.get("contracts") and demo is not None:
         out["contracts"] = demo.get("contracts") or []
-        out["taxonomy"] = merge_taxonomy(folder, demo, origins)
         if not (out.get("currencies") or []):
             out["currencies"] = demo.get("currencies") or []
         demo_project = demo.get("project") or {}
@@ -217,6 +337,7 @@ def merge(folder, demo):
     out["origins"] = origins
     out["demoSections"] = [k for k, v in origins.items() if v == "demo"]
     out["folderSections"] = [k for k, v in origins.items() if v == "folder"]
+    out["contracts"] = restate_records(out.get("contracts") or [], out)
     return out
 
 

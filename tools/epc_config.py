@@ -1856,6 +1856,17 @@ def merge(discovered, analysed):
     for key in ("letters", "meetings"):
         out[key] = _merge_sources(
             discovered.get(key) or [], analysed.get(key) or [], main_id, known_contracts)
+    # A placeholder contract beside the real one is two rows in the register strip
+    # for one contract, one of them with no money. Fold it onto the contract that
+    # was actually read, and point everything that named it at the survivor. This
+    # runs after the series merge, because that merge rewrites `letters`/`meetings`
+    # from scratch and would undo a remap applied before it.
+    out["contracts"], contract_remap = _collapse_contracts(out.get("contracts") or [])
+    if contract_remap:
+        for key in ("letters", "meetings"):
+            for entry in out.get(key) or []:
+                if str(entry.get("contract") or "") in contract_remap:
+                    entry["contract"] = contract_remap[str(entry["contract"])]
     out["_notes"] = list(discovered.get("_notes") or []) + [
         n for n in (analysed.get("_notes") or []) if n not in (discovered.get("_notes") or [])]
     return out
@@ -1947,6 +1958,51 @@ def _merge_sources(current, answer, main_id, known_contracts):
     return out
 
 
+def _is_placeholder_contract(entry):
+    """A contract entry the reader made up to hold a section, not one it read."""
+    number = str(entry.get("no") or "").strip().lower()
+    ident = str(entry.get("id") or "").strip().lower()
+    label = str(entry.get("label") or "").strip().lower()
+    return number in ("", "main contract", "contract", ident) or (
+        not entry.get("value") and not entry.get("valueUsd") and label in ("main contract", ident))
+
+
+def _collapse_contracts(contracts):
+    """One entry per contract, folding a placeholder onto the one that was read.
+
+    The reader fills a contract slot with a placeholder when it knows a section
+    exists but not what the contract is called — a folder of contracts with no
+    register gives it `MAIN` with no number. The model answers with the same
+    contract under the name it read off the document, and merging by id then
+    leaves two entries: a register strip with `MAIN` beside the real main
+    contract, both empty of money. The placeholder is folded onto the contract of
+    the same kind that carries a number, keeping first the fields the real entry
+    has and then any the placeholder filled.
+    """
+    real = {}
+    for entry in contracts:
+        if _is_placeholder_contract(entry):
+            continue
+        key = (str(entry.get("kind") or ""), str(entry.get("no") or "").strip().lower())
+        real.setdefault(key, entry)
+    out = []
+    remap = {}
+    for entry in contracts:
+        if not _is_placeholder_contract(entry):
+            out.append(entry)
+            continue
+        same_kind = [e for (kind, _), e in real.items() if kind == str(entry.get("kind") or "")]
+        if not same_kind:
+            out.append(entry)
+            continue
+        target = same_kind[0]
+        for field, value in entry.items():
+            if value and not target.get(field):
+                target[field] = value
+        remap[str(entry.get("id"))] = str(target.get("id"))
+    return out, remap
+
+
 def _prefer_named(current, answer):
     """Replace a party name that is only a reference token with a real one.
 
@@ -1969,7 +2025,12 @@ def _prefer_named(current, answer):
             continue
         mine = str(entry.get("name") or "").strip()
         theirs = str(named.get("name") or "").strip()
-        if len(mine) <= 8 and len(theirs) > len(mine):
+        # A name that is just the party's role ('Contractor', 'Subcontractor') is a
+        # placeholder the reader made up from the column it filled, and it is longer
+        # than any reference code — so the length test alone missed exactly the two
+        # names that read worst on the participants card.
+        placeholder = mine.lower() in PARTY_ROLES or mine.lower() == role or mine.lower() == str(entry.get("id") or "")
+        if len(theirs) > len(mine) and (placeholder or len(mine) <= 8):
             entry["name"] = theirs
             if not entry.get("former") and named.get("former"):
                 entry["former"] = named["former"]
@@ -1996,12 +2057,30 @@ def _merge_identified(current, answer, key):
         for field in fields:
             if entry.get(field) and not mine.get(field):
                 mine[field] = entry[field]
-        # normalise() fills a blank contract number with the contract's own id, so
-        # 'no == id' is a placeholder rather than a fact the reader established. A
-        # number the model read off a contract document beats it.
+        # normalise() fills a blank contract number with the contract's own id, and
+        # a reader that only knew a section existed fills it with the section's
+        # name, so both are placeholders rather than facts the reader established.
+        # A number the model read off a contract document beats either.
         if key == "contracts" and entry.get("no"):
-            if str(mine.get("no") or "").strip() in ("", str(cid)):
+            mine_no = str(mine.get("no") or "").strip().lower()
+            if mine_no in ("", str(cid).lower(), "main contract", "contract", "subcontract"):
                 mine["no"] = entry["no"]
+        if key == "contracts":
+            # A price is the one thing the reader can be silent about for good
+            # reason: where there is no payment register and no certificate
+            # workbook, nothing in the folder has a parsed figure, and only the
+            # contract documents state what the works were priced at. So a price
+            # the model read off those documents fills a blank — and never
+            # replaces one the reader established from a register.
+            for field in ("value", "valueUsd", "valueRevised", "originalValue",
+                          "originalValueUsd", "advancePct", "retentionPct"):
+                amount = entry.get(field)
+                if mine.get(field) in (None, "", 0) and isinstance(amount, (int, float)) and amount > 0:
+                    mine[field] = amount
+            # The currency is read from a register the folder may not hold at all.
+            # A blank is a blank; a currency the reader established stands.
+            if entry.get("currency") and not str(mine.get("currency") or "").strip():
+                mine["currency"] = entry["currency"]
         if key == "parties":
             for field in ("name", "former", "abbr"):
                 if entry.get(field) and str(mine.get(field) or "").lower() in (

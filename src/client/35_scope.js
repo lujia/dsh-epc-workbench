@@ -136,20 +136,31 @@ function contractList(data) {
 			var bySeries = (data.letters || {}).bySeries || {};
 			var byPkg = (data.letters || {}).byPkg || {};
 			var reg = contractById(data, id) || {};
-			if (isMainScope(data, id)) {
-				var sum = 0;
+			/* Count what the dataset ties to this contract, by series key.
+			   byPkg is keyed on the reference token printed inside a letter
+			   number, which is the demo's spelling of the package and not
+			   necessarily the contract id a folder's own documents use — a
+			   page whose ids came from a contract register would then show
+			   zero letters beside nine hundred of them. The dataset carries a
+			   per-contract count when the merge computed one; the taxonomy says
+			   which series belong to which contract, and that is the fallback. */
+			var sum = isNum(reg.letters) ? reg.letters : 0;
+			if (!sum) {
 				seriesKeysFor(data, id).forEach(function (key) {
 					sum += (bySeries[key] && bySeries[key].count) || 0;
 				});
+			}
+			if (isMainScope(data, id)) {
 				var certs = data.mainContract && data.mainContract.totals
 					? data.mainContract.totals.count
 					: 0;
 				return { letters: sum, certs: certs };
 			}
+			if (!sum) sum = byPkg[contractTag(data, id)] || byPkg[id] || 0;
 			/* Subcontract certificates are not labelled by package in the letter
 			   register, but each package keeps one retention row per certificate,
 			   which is a faithful count of what has been certified. */
-			return { letters: byPkg[id] || 0, certs: reg.records || 0 };
+			return { letters: sum, certs: reg.records || 0 };
 		}
 
 		/* Two figures every main-contract progress reading needs, kept in one place

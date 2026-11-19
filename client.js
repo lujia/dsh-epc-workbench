@@ -1447,20 +1447,31 @@ function contractList(data) {
 			var bySeries = (data.letters || {}).bySeries || {};
 			var byPkg = (data.letters || {}).byPkg || {};
 			var reg = contractById(data, id) || {};
-			if (isMainScope(data, id)) {
-				var sum = 0;
+			/* Count what the dataset ties to this contract, by series key.
+			   byPkg is keyed on the reference token printed inside a letter
+			   number, which is the demo's spelling of the package and not
+			   necessarily the contract id a folder's own documents use — a
+			   page whose ids came from a contract register would then show
+			   zero letters beside nine hundred of them. The dataset carries a
+			   per-contract count when the merge computed one; the taxonomy says
+			   which series belong to which contract, and that is the fallback. */
+			var sum = isNum(reg.letters) ? reg.letters : 0;
+			if (!sum) {
 				seriesKeysFor(data, id).forEach(function (key) {
 					sum += (bySeries[key] && bySeries[key].count) || 0;
 				});
+			}
+			if (isMainScope(data, id)) {
 				var certs = data.mainContract && data.mainContract.totals
 					? data.mainContract.totals.count
 					: 0;
 				return { letters: sum, certs: certs };
 			}
+			if (!sum) sum = byPkg[contractTag(data, id)] || byPkg[id] || 0;
 			/* Subcontract certificates are not labelled by package in the letter
 			   register, but each package keeps one retention row per certificate,
 			   which is a faithful count of what has been certified. */
-			return { letters: byPkg[id] || 0, certs: reg.records || 0 };
+			return { letters: sum, certs: reg.records || 0 };
 		}
 
 		/* Two figures every main-contract progress reading needs, kept in one place
@@ -1857,10 +1868,21 @@ function contractList(data) {
 				{ label: t('ov.kpi.overdue'), value: grouped(defects.overdueCount), unit: null, sub: t('sub.ofopen', { p: pct(defects.overdueCount, defects.openCount) }) }
 			];
 
+			/* A project whose name already names the site prints it twice — the main
+			   contract here reads 'Enhancing the Handling Capacity of Coal Yard,
+			   Lakvijaya Power Station' and the site is 'Lakvijaya Power Station'.
+			   Drop the site when the name already carries it. */
+			var headName = String(project.name || '');
+			var headSite = String(project.site || '');
+			if (headSite && headName.toLowerCase().indexOf(headSite.toLowerCase()) >= 0) headSite = '';
+			var headSub = headSite
+				? t('ov.sub', { name: headName, site: headSite })
+				: headName;
+
 			return h('div', { className: 'epc-wrap' },
 				h(PageHead, {
 					title: t('ov.title'),
-					sub: t('ov.sub', { name: project.name, site: project.site })
+					sub: headSub
 				}),
 
 				h(ContractBar, { data: data, scope: scope, onScope: props.onScope }),

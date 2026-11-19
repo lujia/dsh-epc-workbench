@@ -26,6 +26,7 @@ import os
 import sys
 
 import docread
+import evidence as evidence_mod
 
 TEXT_EXT = docread.TEXT_EXT
 WORD_EXT = docread.WORD_EXT
@@ -128,6 +129,13 @@ def _dir_entry(folder, path, depth):
     }
 
 
+def _size(path):
+    try:
+        return os.path.getsize(path)
+    except OSError:
+        return 0
+
+
 def _markdown(path):
     """The header block of one document, which is where its identity is.
 
@@ -140,6 +148,25 @@ def _markdown(path):
     if not lines:
         return None
     return lines
+
+
+def _evidence(path):
+    """The priced terms of one document, wherever in it they were printed.
+
+    A letter states its identity in the first two lines; a contract states its
+    price on page three, its parties in a preamble, its retention elsewhere. The
+    header block above is the right sample for the first and useless for the
+    second, so a long document is also scanned end to end for amounts, parties,
+    priced terms and reference numbers — and only those passages are sent, which
+    keeps an 800 KB contract inside the same budget as a one-page letter.
+    """
+    try:
+        found = evidence_mod.evidence(path)
+    except Exception:
+        return None
+    if not any(found.get(k) for k in ("money", "terms", "parties", "references")):
+        return None
+    return found
 
 
 def _sheet_preview(ws):
@@ -217,6 +244,14 @@ def inventory(folder):
     by_folder = {}
     for path in document_paths:
         by_folder.setdefault(os.path.dirname(path), {}).setdefault(_ext(path), []).append(path)
+    # Largest first inside each folder: in a folder of contract documents the
+    # agreement itself is the big one and the addenda are small, and the agreement
+    # is what states the price. Alphabetical order picked `C008-Addendum-01.md`
+    # fourteen times out of fourteen on a contracts-only corpus and never showed
+    # the model a single contract.
+    for buckets in by_folder.values():
+        for ext in buckets:
+            buckets[ext].sort(key=lambda p: (-_size(p), os.path.basename(p)))
     folders = sorted(by_folder, key=lambda d: -sum(len(b) for b in by_folder[d].values()))
     seen_ext = {}
     sample = []
@@ -250,6 +285,9 @@ def inventory(folder):
             entry["lines"] = []
         else:
             entry["lines"] = lines
+        found = _evidence(path)
+        if found is not None:
+            entry["evidence"] = found
         markdown.append(entry)
 
     sheet_paths = [p for p in files if _ext(p) in SHEET_EXT]

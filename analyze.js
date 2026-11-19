@@ -45,6 +45,14 @@ contracts[]  { id, kind, no, label, tag, counterparty, currency, value, valueUsd
              counterparty is a party id. dir+file point at this contract's
              retention workbook, relative to the folder. has_period says whether
              that workbook has a period column.
+             value is the price in the contract's own primary currency, as a plain
+             number with no separators: LKR 1,881,773,646.24 becomes 1881773646.24.
+             valueUsd is a SECOND SLICE of the same price when the contract is
+             priced in two currencies, not a conversion of value. A contract
+             stated as "USD 13,772,186.01 and LKR 1,881,773,646.24" has both.
+             valueRevised is the price after the variations the documents record;
+             originalValue is the price before them.
+             advancePct and retentionPct are percentages as numbers (15, 10).
 sources      { defects, paymentsRegister, mainContractDir, sheets, latestCertificate, docs }
              defects            path of the defect register workbook
              paymentsRegister   path of the interim-payment register workbook
@@ -65,8 +73,14 @@ All paths are relative to the project folder and use forward slashes.
 Omit any field you cannot establish from the inventory. Do not guess numbers.`;
 
 const PROMPT_TASK = `Below is an inventory of a project folder: the folders with their file counts
-and a few file names each, the header block of a sample of markdown documents, and
-the sheet names plus the first rows of a sample of workbooks.
+and a few file names each, the header block of a sample of documents, and the sheet
+names plus the first rows of a sample of workbooks.
+
+Some documents carry an "evidence" block as well. It is not a summary: it is the
+passages a full read of that document found for amounts, parties, priced terms and
+contract numbers, with the text around each one. A contract states its price on
+page three, so the header block of sixteen lines never shows it and the evidence
+block is the only place it appears. Read every evidence block you are given.
 
 Decide what this corpus is and return the configuration that reads it. Work out:
 
@@ -79,8 +93,20 @@ Decide what this corpus is and return the configuration that reads it. Work out:
 5. Which folder holds the main-contract certificates, if there is one.
 6. Which contract's retention workbook is where, and whether it has a period column.
 7. The parties: who is the employer, who is the contractor (the standpoint), who
-   is the subcontractor, and any former names the records show.
-8. The contract numbers, and the price in each currency if the records state it.
+   is the subcontractor, and any former names the records show. Use the full name
+   the document gives, not the reference code: an evidence block that reads
+   "between China Machinery Engineering Corporation (hereinafter "the Contractor")"
+   is telling you who the contractor is.
+8. The contract numbers, and the price in each currency, from the evidence blocks.
+   When an addendum states a variation, work out the revised price and record it as
+   valueRevised with the original as originalValue. When a contract is priced in two
+   currencies, put the primary in value and the second slice in valueUsd.
+9. The currencies: every one the contracts are priced in, with the local currency
+   (the one the tax columns are kept in) marked primary.
+
+A folder of contracts only — no letters, no payments — is a complete answer to this
+task: report the contracts, their parties and their prices, and leave the sections
+the folder does not hold empty.
 
 Answer with one JSON object shaped exactly like the schema above. No prose, no
 markdown fence, no comments.`;
@@ -172,6 +198,32 @@ function initials(name) {
  * the meaning and wrong about the syntax. Fixing the syntax here keeps the model's
  * judgement and discards only its formatting.
  */
+/* The currencies whose symbol is worth printing. The interface puts the currency
+ * beside a figure in a fixed-width column; a written-out name is either cut short
+ * ("Sri Lankan R") or pushes the amount out of its tile ("US Dollar"). A symbol
+ * is one or two characters and reads the same in both languages. */
+const CURRENCY_SYMBOLS = {
+	USD: 'US$',
+	LKR: 'LKR',
+	EUR: '€',
+	GBP: '£',
+	JPY: 'JPY',
+	CNY: 'CNY',
+	RMB: 'CNY',
+	AUD: 'A$',
+	SGD: 'S$',
+	INR: 'INR',
+	PKR: 'PKR',
+	BDT: 'BDT',
+	MYR: 'MYR',
+	THB: 'THB',
+	SAR: 'SAR',
+	AED: 'AED',
+	QAR: 'QAR',
+	KRW: 'KRW',
+	CHF: 'CHF',
+};
+
 function tidy(raw, folder) {
 	const config = { project: {}, parties: [], contracts: [], sources: {}, letters: [], meetings: [] };
 	const project = raw.project && typeof raw.project === 'object' ? raw.project : {};
@@ -194,7 +246,16 @@ function tidy(raw, folder) {
 					.filter((c) => c && typeof c === 'object' && c.code)
 					.map((c) => ({
 						code: String(c.code).toUpperCase().slice(0, 8),
-						label: String(c.label || c.code).slice(0, 12),
+						// A currency label is printed beside a figure inside a KPI
+						// tile, so it has to be a symbol or a very short token. A
+						// model that answers with the written-out name ("Sri Lankan
+						// Rupees", "United States Dollars") has read the document
+						// correctly and produced a label that cannot be printed: the
+						// figure column is fixed, and "US Dollar" pushes the amount
+						// off the tile. Well-known codes get their symbol; anything
+						// else falls back to the code itself, which is never wrong.
+						label: CURRENCY_SYMBOLS[String(c.code).toUpperCase()] ||
+							(String(c.label || '').length <= 4 ? String(c.label) : String(c.code).toUpperCase().slice(0, 8)),
 						primary: Boolean(c.primary),
 					}))
 			: [],

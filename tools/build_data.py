@@ -1530,6 +1530,41 @@ def scan_certificate_pdfs(folder):
     return [merged[k] for k in order]
 
 
+def _price_stated(block):
+    """Whether a contract block carries a price at all, rather than only a number."""
+    for key in ("lkr", "usd", "revisedLkr", "originalLkr", "originalUsd"):
+        value = (block or {}).get(key)
+        if isinstance(value, (int, float)) and value > 0:
+            return True
+    return False
+
+
+def _empty_main_contract():
+    """A main-contract block for a project that has a contract but no certificates.
+
+    A folder of contract documents states the price the works were let at and holds
+    no payment certificate at all — the certificates are issued later and live
+    somewhere else. Returning None there would drop the contract number and the
+    price the documents state, and the page would then show another project's
+    contract because the certificates came from elsewhere. The series stay empty and
+    the card reads zero certified, which is the truth for that folder.
+    """
+    return {
+        "folder": MAIN_DIR,
+        "files": 0,
+        "parsed": 0,
+        "pdfOnly": [],
+        "missing": [],
+        "ipas": [],
+        "ledger": [],
+        "byPeriod": {},
+        "latest": None,
+        "scans": [],
+        "contract": _main_contract_block(),
+        "totals": {"certifiedUsd": None, "certifiedLkr": None, "count": 0, "lastIpa": None},
+    }
+
+
 def load_main_ipas():
     """Per-IPA main-contract certificate series plus the price-adjustment ledger."""
     from openpyxl import load_workbook
@@ -1537,8 +1572,10 @@ def load_main_ipas():
                     "main-contract certificates") if MAIN_DIR else None
     if d is None:
         # No main-contract folder: the workbench has a subcontract side only, which
-        # is a project shape rather than a fault, so it stays silent.
-        return None
+        # is a project shape rather than a fault, so it stays silent. A project whose
+        # documents state a price is the one case worth reporting without certificates:
+        # dropping the price would make the register show no main contract at all.
+        return _empty_main_contract() if _price_stated(_main_contract_block()) else None
     rows, pdf_only, by_no = [], [], {}
     ledger, summary_latest = [], None
     unreadable = 0

@@ -230,6 +230,20 @@ prompt, and the document records `truncated` / `dropped` rather than silently lo
 corpus. Documents are read through `tools/docread.py`, which handles `.md`, `.txt`, `.docx`
 and `.pdf`; a scanned PDF with no text layer is reported as such rather than read as noise.
 
+Within each folder the samples are taken **largest file first**, not alphabetically. In a
+folder of contract documents the agreement itself is the big one and the addenda are small,
+and the agreement is the one that states the price — alphabetical order picked fourteen
+addenda out of fourteen on a contracts-only corpus and never showed the model a contract.
+
+Each sampled document also carries an `evidence` block from `tools/evidence.py`: the same
+document read end to end and reduced to the passages around amounts, the party preamble
+(`hereinafter "the Employer"`), priced terms (`advance payment`, `retention`, `liquidated
+damages`, `price adjustment`, …), document numbers and its headings. Passages are clipped
+*around* the match, never from the start of the line: a PDF extraction puts a whole clause on
+one line and the figure can sit several hundred characters into it, which is exactly where the
+main contract states its price. `truncated` says when a document was larger than the reader
+was willing to hold in memory.
+
 `analyze.js` sends that description to `ctx.get('llm').stream(...)` on the route
 `ctx.get('agentDefaultModel').currentSelection()` returns — the provider, model and
 reasoning effort the conversation is already using — and reads back a configuration object.
@@ -243,7 +257,14 @@ beats a judgement formed from a summary of the folder:
 * the model supplies what the reader could not recognise — a series under an unexpected
   name, a register the walker passed over — and the names it could only see as reference
   codes (`HALO`, `NORV` become the organisations on the letterheads);
-* a contract's price and currency are never taken from the model;
+* a contract's price, currency and number are filled from the model only where the reader
+  has nothing: a positive figure the reader parsed is never replaced, a real contract number
+  is never replaced (only a placeholder — `Main contract`, or the contract's own id — is), and
+  a currency is taken only into an empty field. A folder of contracts and no payments has no
+  register the reader can read a price out of, so there the model's evidence block is the only
+  source and it is used;
+* a contract entry the reader built with no number and no price is a placeholder, and it is
+  folded onto the real contract of the same kind rather than left beside it in the register;
 * a series the reader found keeps its folder and series key; only its contract attribution
   and a role-guessed label may be corrected, because the model read the documents;
 * two parties describing the same organisation are folded into one entry, and a contract
