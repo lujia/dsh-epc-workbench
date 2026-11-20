@@ -181,7 +181,12 @@ const CSS = css
     .replace(/^[\s\S]*?String\.raw`/, '')
     .replace(/`[\s\S]*$/, '')
 
-const VIEWS = ['overview', 'commercial', 'correspondence', 'meetings', 'quality', 'documents']
+const VIEWS = ['overview', 'commercial', 'correspondence', 'meetings', 'quality', 'documents',
+  // One page per subject folder. Rendered by the same harness so a folder page can
+  // be looked at without a browser and a project folder to point it at.
+  'f_contracts', 'f_defects', 'f_drawings', 'f_letters', 'f_materials', 'f_meetings',
+  'f_payments', 'f_photos', 'f_taking_overs', 'f_videos']
+
 // A tab name in the argv selects one of the commercial tabs inside the page;
 // 'sub' forces the P01/P02 subcontract scope instead of the main contract.
 const COM_TABS = ['ipas', 'adjust', 'bills', 'statement', 'ipcs', 'employer', 'retention', 'boq']

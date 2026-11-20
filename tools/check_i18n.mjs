@@ -14,9 +14,10 @@ let source = ''
 for (const f of files) source += '\n' + (await readFile(join(SRC, f), 'utf8'))
 
 const used = new Set()
-// Skip partially-built keys such as t('view.' + id): the prefix is not a key.
+// Skip partially-built keys such as t('view.' + id) and t('view.f_' + key): the
+// prefix is not a key, and the suffixes it would carry are listed explicitly below.
 for (const m of source.matchAll(/\bt\(\s*'([A-Za-z0-9_.]+)'/g)) {
-  if (!m[1].endsWith('.')) used.add(m[1])
+  if (!m[1].endsWith('.') && !m[1].endsWith('_')) used.add(m[1])
 }
 
 // moneyKpi takes a key exactly like t() does — the money tiles that print one
@@ -28,7 +29,12 @@ for (const m of source.matchAll(/\bmoneyKpi\(\s*'([A-Za-z0-9_.]+)'/g)) used.add(
 // labels are not here: they come from the dataset taxonomy, not from the
 // dictionary, so a project can name its own series without touching i18n.
 for (const v of ['overview', 'commercial', 'correspondence', 'meetings', 'quality', 'documents']) used.add('view.' + v)
-for (const v of ['project', 'delivery', 'records']) used.add('cluster.' + v)
+for (const v of ['project', 'delivery', 'records', 'folders']) used.add('cluster.' + v)
+/* The folder pages are one per subject folder, named by a table in the client:
+   `t('view.f_' + key)` cannot be read as a key by a regex, so the keys are listed
+   here — the same list the client's FOLDER_KEYS holds. */
+for (const v of ['contracts', 'defects', 'drawings', 'letters', 'materials', 'meetings',
+	'payments', 'photos', 'taking_overs', 'videos']) used.add('view.f_' + v)
 for (const v of ['L', 'M', 'D', 'I', 'C', 'S']) used.add('kind.' + v)
 for (const v of ['c', 'e', 'm']) used.add('ql.disc.' + v)
 // Contract roles the register strip can print, whatever the project calls them.

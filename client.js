@@ -223,6 +223,15 @@ window.__ModuleLoader__.load({
 .epc-notes-ok{margin-bottom:2px}
 .epc-notes-k+.epc-notes-l+.epc-notes-k{margin-top:13px}
 .epc-notes-hint{margin-top:11px;padding-top:10px;border-top:1px solid var(--epc-line2);font-size:11.5px;line-height:1.5;color:var(--epc-muted)}
+.epc-badge.quiet{background:transparent;color:var(--epc-dim);border:1px solid var(--epc-line2);padding:2px 5px}
+/* ---------- subject folder pages ---------- */
+.epc-files{display:flex;flex-direction:column;gap:14px}
+.epc-filegroup{display:flex;flex-direction:column;gap:0}
+.epc-filegroup-h{display:flex;align-items:baseline;gap:8px;padding:7px 0 5px;border-bottom:1px solid var(--epc-line2)}
+.epc-filegroup-n{font:600 11px/1.2 var(--epc-mono);letter-spacing:.02em;color:var(--epc-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.epc-filegroup-c{font:500 10px/1 var(--epc-mono);color:var(--epc-dim);white-space:nowrap;margin-left:auto}
+.epc-filegroup .epc-table{margin-top:0}
+.epc-dim{color:var(--epc-dim)}
 .epc-wait{display:flex;flex-direction:column;gap:7px;align-items:flex-start;padding:36px 30px;margin:8px 0 0;border:1px solid var(--epc-line2);border-radius:8px;background:var(--epc-panel2)}
 .epc-wait-k{font-weight:650;font-size:13px;color:var(--epc-text);display:flex;align-items:center;gap:8px}
 .epc-wait-k::after{content:"";width:9px;height:9px;border-radius:99px;background:var(--epc-accent);animation:epc-pulse 1.1s ease-in-out infinite}
@@ -460,6 +469,15 @@ window.__ModuleLoader__.load({
 			meetings: ['M6 2.5v2M10 2.5v2', 'M2.5 5.5h11v8h-11z', 'M2.5 8.5h11'],
 			quality: ['M8 1.8 13.8 4.4v3.9c0 3-2.4 5-5.8 6-3.4-1-5.8-3-5.8-6V4.4L8 1.8Z', 'm5.9 7.9 1.6 1.7 2.9-3'],
 			documents: ['M4 2.5h5.2L12 5.3v8.2H4z', 'M9 2.6v3h3'],
+			contracts: ['M3.4 2.5h6.4l2.8 2.8v8.2H3.4z', 'M8.8 2.6v2.9h2.9', 'M5.2 8.3h5.6', 'M5.2 10.6h3.6'],
+			defects: ['M8 2.2 14 12.6H2L8 2.2Z', 'M8 6.4v2.9', 'M8 11.1v.1'],
+			drawings: ['M2.6 12.6 6.2 3.4l2.6 6 1.5-3.4 3.1 6.6z', 'M3.4 12.6h9.2'],
+			letters: ['M2.5 4.2h11v7.6h-11z', 'm2.5 4.6 5.5 4 5.5-4', 'M4.6 12.9l-.7 1.6 2.4-1.6'],
+			materials: ['m8 2.2 5.4 3v5.6L8 13.8 2.6 10.8V5.2L8 2.2Z', 'M2.8 5.4 8 8.2l5.2-2.8', 'M8 8.3v5.4'],
+			payments: ['M2.5 4.6h11v6.8h-11z', 'M2.5 6.9h11', 'M5 9.6h2.6'],
+			photos: ['M2.5 4h11v8h-11z', 'm4.6 10.2 2.3-2.9 1.7 2 1.4-1.6 1.9 2.5', 'M6.3 6.4a.9.9 0 1 1-1.8 0 .9.9 0 0 1 1.8 0Z'],
+			taking_overs: ['M4.6 2.5h5.2l2.6 2.6v8.4H4.6z', 'M9.4 2.6v2.7h2.7', 'm5.9 9.2 1.4 1.5 2.6-2.9'],
+			videos: ['M2.5 4.6h7v6.8h-7z', 'm9.5 7.2 3.8-2.2v6l-3.8-2.2'],
 			search: ['M7.2 12.2a5 5 0 1 0 0-10 5 5 0 0 0 0 10Z', 'm10.9 10.9 2.6 2.6'],
 			chevron: ['m6 4 4 4-4 4'],
 			collapse: ['M9.5 3.5 5.5 8l4 4.5'],
@@ -580,6 +598,17 @@ window.__ModuleLoader__.load({
 			'cluster.project': 'Project',
 			'cluster.delivery': 'Delivery',
 			'cluster.records': 'Records',
+			'cluster.folders': 'Project folders',
+			'view.f_contracts': 'Contracts',
+			'view.f_defects': 'Defect notices',
+			'view.f_drawings': 'Drawings',
+			'view.f_letters': 'Letters',
+			'view.f_materials': 'Materials',
+			'view.f_meetings': 'Meeting minutes',
+			'view.f_payments': 'Payments',
+			'view.f_photos': 'Photos',
+			'view.f_taking_overs': 'Taking-over certificates',
+			'view.f_videos': 'Videos',
 			'view.overview': 'Overview',
 			'view.commercial': 'Commercial',
 			'view.correspondence': 'Correspondence',
@@ -924,6 +953,34 @@ window.__ModuleLoader__.load({
 			'dc.drawings': 'Drawings',
 			'dc.sub.drawings': '{n} sets',
 			'dc.drawings.note': '{n} drawings across {s} sets',
+			'fd.files': 'Files',
+			'fd.all': 'all shown',
+			'fd.shown': '{n} shown',
+			'fd.empty': 'folder is empty',
+			'fd.folders': 'Subfolders',
+			'fd.subfolders': 'where the files sit',
+			'fd.formats': 'Formats',
+			'fd.size': 'Total size',
+			'fd.size.note': 'as filed',
+			'fd.root': '(top of folder)',
+			'fd.group': '{n} files',
+			'fd.th.name': 'File',
+			'fd.th.size': 'Size',
+			'fd.th.format': 'Format',
+			'fd.head': '{dir} \u00b7 {n} files',
+			'fd.head.none': 'the folder {dir} is not in this project',
+			'fd.formats.title': 'By format',
+			'fd.formats.note': 'what the files are',
+			'fd.subs.title': 'By folder',
+			'fd.subs.note': 'where they are filed',
+			'fd.list.title': 'Files',
+			'fd.list.note': 'every file in this folder',
+			'fd.list.capped': 'the first {n} files; the rest are counted in the totals',
+			'fd.empty.title': 'This folder holds nothing',
+			'fd.empty.hint': 'Nothing was found under {dir}. The page stays so the gap is visible rather than silent.',
+			'fd.empty.others.title': 'No files of this kind',
+			'fd.empty.others': '{dir} holds {n} file(s), but none of them is a record this page reads.',
+			'fd.others': '{n} file(s) in this folder are not listed: they are not records this page reads.',
 			'dc.scans': 'Signed certificates',
 			'dc.sub.scans': '{a} amended',
 			'dc.scans.note': '{n} scanned certificates from the employer, indexed by reference — the certificates carry no text layer, so amounts come from the workbook series',
@@ -946,6 +1003,17 @@ window.__ModuleLoader__.load({
 			'cluster.project': '项目',
 			'cluster.delivery': '履约',
 			'cluster.records': '档案',
+			'cluster.folders': '项目文件夹',
+			'view.f_contracts': '合同',
+			'view.f_defects': '缺陷单',
+			'view.f_drawings': '图纸',
+			'view.f_letters': '信函',
+			'view.f_materials': '材料信息',
+			'view.f_meetings': '会议纪要',
+			'view.f_payments': '收付款',
+			'view.f_photos': '照片',
+			'view.f_taking_overs': '移交证书',
+			'view.f_videos': '视频',
 			'view.overview': '总览',
 			'view.commercial': '商务付款',
 			'view.correspondence': '往来函件',
@@ -1288,6 +1356,34 @@ window.__ModuleLoader__.load({
 			'dc.drawings': '图纸',
 			'dc.sub.drawings': '{n} 套',
 			'dc.drawings.note': '{s} 套共 {n} 张图纸',
+			'fd.files': '文件数',
+			'fd.all': '已全部列出',
+			'fd.shown': '列出 {n} 个',
+			'fd.empty': '文件夹为空',
+			'fd.folders': '子文件夹',
+			'fd.subfolders': '文件所在位置',
+			'fd.formats': '文件格式',
+			'fd.size': '总体积',
+			'fd.size.note': '按已归档',
+			'fd.root': '（文件夹根目录）',
+			'fd.group': '{n} 个文件',
+			'fd.th.name': '文件',
+			'fd.th.size': '大小',
+			'fd.th.format': '格式',
+			'fd.head': '{dir} \u00b7 {n} 个文件',
+			'fd.head.none': '本项目中没有 {dir} 文件夹',
+			'fd.formats.title': '按格式',
+			'fd.formats.note': '文件的类型',
+			'fd.subs.title': '按子文件夹',
+			'fd.subs.note': '归档位置',
+			'fd.list.title': '文件列表',
+			'fd.list.note': '该文件夹中的全部文件',
+			'fd.list.capped': '仅列出前 {n} 个文件，其余计入总数',
+			'fd.empty.title': '该文件夹为空',
+			'fd.empty.hint': '{dir} 下未找到任何文件。页面保留，以便看到这一缺口。',
+			'fd.empty.others.title': '没有此类文件',
+			'fd.empty.others': '{dir} 中有 {n} 个文件，但没有属于本页所读取的记录。',
+			'fd.others': '该文件夹中还有 {n} 个文件未列出：它们不属于本页所读取的记录。',
 			'dc.scans': '签字证书',
 			'dc.sub.scans': '{a} 份修订',
 			'dc.scans.note': '{n} 份业主签发的扫描版证书，按编号建立索引 — 扫描件无可提取文字层，金额取自工作簿序列',
@@ -3269,6 +3365,198 @@ function contractList(data) {
 				h('div', { className: 'epc-note' }, t('src.docs')));
 		}
 
+/* ============================================================================
+   Subject folders — one page per folder of the project
+
+   The project is organised as ten folders: contracts, defects, drawings,
+   letters, materials, meetings, payments, photos, taking-overs and videos. Eight
+   of them already feed a section of their own, and those sections are the right
+   way to read the records inside them — a certificate is not a file listing.
+
+   A folder page answers the other question: what is in this folder. It lists
+   every file it holds with its size, its format and where it sits, groups them
+   by subfolder, and shows the formats as bars, so a reader can see whether a
+   folder is one big register or nine hundred drawings across twenty sets
+   without opening the file system. The listing is bounded by the extractor
+   (600 files, 900 for drawings) and the page says so when it is — a page that
+   claims a folder holds 600 files when it holds 7,596 is worse than no page.
+   ============================================================================ */
+
+		/* The ten folders, in the order the project names them. Kept here rather
+		   than read from the payload so a page renders even when the folder is
+		   absent: an empty folder is a fact about the project, and the page that
+		   says 'this folder holds nothing' is how the reader learns it. */
+		var FOLDER_KEYS = [
+			'contracts', 'defects', 'drawings', 'letters', 'materials',
+			'meetings', 'payments', 'photos', 'taking_overs', 'videos'
+		];
+
+		function folderOf(data, key) {
+			var f = ((data && data.folders) || {})[key];
+			return f || { dir: null, files: [], count: 0, shown: 0, others: 0, capped: false };
+		}
+
+		function folderCount(data, key) {
+			return folderOf(data, key).count || 0;
+		}
+
+		/* Format of a file as a word rather than an extension where the extension
+		   says less than the thing: a .dwg and a .pdf in a drawings folder are both
+		   drawings, and a reader scans 'CAD 351' faster than 'dwg 351, dwf 12'. */
+		function formatOf(ext) {
+			var e = String(ext || '').toLowerCase();
+			if (e === 'pdf') return 'PDF';
+			if (e === 'dwg' || e === 'dwf' || e === 'dxf' || e === 'plt' || e === 'ctb') return 'CAD';
+			if (e === 'md' || e === 'txt') return 'Text';
+			if (e === 'doc' || e === 'docx') return 'Word';
+			if (e === 'xls' || e === 'xlsx' || e === 'xlsm') return 'Excel';
+			if (e === 'jpg' || e === 'jpeg' || e === 'png' || e === 'tif' || e === 'tiff' || e === 'bmp' || e === 'heic') return 'Image';
+			if (e === 'mp4' || e === 'mov' || e === 'avi' || e === 'mkv' || e === 'wmv' || e === 'm4v') return 'Video';
+			return e ? e.toUpperCase() : 'File';
+		}
+
+		function folderBytes(n) {
+			if (!isNum(n) || n <= 0) return '—';
+			var units = ['B', 'KB', 'MB', 'GB', 'TB'];
+			var i = 0;
+			var v = n;
+			while (v >= 1024 && i < units.length - 1) { v = v / 1024; i += 1; }
+			return (i === 0 ? v.toFixed(0) : v.toFixed(v >= 100 ? 0 : 1)) + ' ' + units[i];
+		}
+
+		function folderStats(files) {
+			var formats = {};
+			var subs = {};
+			var total = 0;
+			(files || []).forEach(function (f) {
+				var k = formatOf(f.ext);
+				formats[k] = (formats[k] || 0) + 1;
+				var s = f.sub || '';
+				subs[s] = (subs[s] || 0) + 1;
+				total += f.size || 0;
+			});
+			return { formats: formats, subs: subs, total: total };
+		}
+
+		function FolderHead(props) {
+			var f = props.folder;
+			var stats = props.stats;
+			var shownSub = f.capped
+				? t('fd.shown', { n: grouped(f.shown) })
+				: (f.count === 0 ? t('fd.empty') : t('fd.all'));
+			return h(KpiRow, {
+				items: [
+					{ label: t('fd.files'), value: grouped(f.count), sub: shownSub },
+					{
+						label: t('fd.folders'),
+						value: grouped(Object.keys(stats.subs).length),
+						sub: t('fd.subfolders')
+					},
+					{
+						label: t('fd.formats'),
+						value: grouped(Object.keys(stats.formats).length),
+						sub: topEntries(stats.formats, 2).map(function (e) { return e[0] + ' ' + grouped(e[1]); }).join(' · ')
+					},
+					{ label: t('fd.size'), value: folderBytes(stats.total), sub: t('fd.size.note') }
+				]
+			});
+		}
+
+		/* Grouped by subfolder, because a drawings folder of nine hundred files is
+		   nine hundred rows of noise in file-system order and twenty readable groups
+		   in the order the project filed them. */
+		function FileGroups(props) {
+			var rows = props.files || [];
+			if (rows.length === 0) return null;
+			var groups = [];
+			var index = {};
+			rows.forEach(function (f) {
+				var sub = f.sub || '';
+				if (!Object.prototype.hasOwnProperty.call(index, sub)) {
+					index[sub] = groups.length;
+					groups.push({ sub: sub, files: [] });
+				}
+				groups[index[sub]].files.push(f);
+			});
+			return h('div', { className: 'epc-files' }, groups.map(function (g, gi) {
+				return h('div', { className: 'epc-filegroup', key: 'g' + gi },
+					h('div', { className: 'epc-filegroup-h' },
+						h('span', { className: 'epc-filegroup-n' }, g.sub || t('fd.root')),
+						h('span', { className: 'epc-filegroup-c' }, t('fd.group', { n: grouped(g.files.length) }))),
+					h('table', { className: 'epc-table' },
+						h('thead', null, h('tr', null,
+							h('th', null, t('fd.th.name')),
+							h('th', { className: 'r', style: { width: '92px' } }, t('fd.th.size')),
+							h('th', { style: { width: '86px' } }, t('fd.th.format')))),
+						h('tbody', null, g.files.map(function (f, fi) {
+							return h('tr', { key: 'r' + fi },
+								h('td', null,
+									h('div', { className: 'epc-clip', style: { maxWidth: '560px' }, title: f.rel || f.name }, f.name)),
+								h('td', { className: 'r mono dim' }, folderBytes(f.size)),
+								h('td', null, h(Pill, { dot: false }, formatOf(f.ext))));
+						}))));
+			}));
+		}
+
+		function ViewFolder(props) {
+			var data = props.data;
+			var key = props.folderKey;
+			var folder = folderOf(data, key);
+			var stats = folderStats(folder.files);
+			var formats = toEntries(stats.formats).sort(function (a, b) { return b[1] - a[1]; });
+			var subs = toEntries(stats.subs).sort(function (a, b) { return b[1] - a[1]; });
+			var maxFormat = formats.length > 0 ? formats[0][1] : 1;
+			var maxSub = subs.length > 0 ? subs[0][1] : 1;
+
+			return h('div', { className: 'epc-wrap' },
+				h(PageHead, {
+					title: t('view.f_' + key),
+					sub: folder.dir
+						? t('fd.head', { dir: folder.dir, n: grouped(folder.count) })
+						: t('fd.head.none', { dir: key })
+				}),
+				h(FolderHead, { folder: folder, stats: stats }),
+				formats.length > 0 ? h('div', { className: 'epc-grid epc-g2' },
+					h(Card, { title: t('fd.formats.title'), note: t('fd.formats.note') },
+						formats.slice(0, 8).map(function (e, i) {
+							return h(ListBar, {
+								key: 'f' + i,
+								label: e[0],
+								value: e[1],
+								max: maxFormat,
+								display: grouped(e[1])
+							});
+						})),
+					h(Card, { title: t('fd.subs.title'), note: t('fd.subs.note') },
+						subs.slice(0, 12).map(function (e, i) {
+							return h(ListBar, {
+								key: 's' + i,
+								label: e[0] === '' ? t('fd.root') : e[0],
+								value: e[1],
+								max: maxSub,
+								display: grouped(e[1])
+							});
+						}))) : null,
+				folder.count === 0
+					/* An empty folder is not always an empty folder: a videos folder
+					   holding four documents and no video is a fact about the project,
+					   and saying 'nothing here' beside a note that four files are not
+					   listed would read as a contradiction. */
+					? h(Card, null, h(Empty, null,
+						h('div', null, folder.others > 0 ? t('fd.empty.others.title') : t('fd.empty.title')),
+						h('div', { className: 'epc-dim', style: { marginTop: '6px' } },
+							folder.others > 0
+								? t('fd.empty.others', { n: grouped(folder.others), dir: folder.dir || key })
+								: t('fd.empty.hint', { dir: folder.dir || key }))))
+					: h(Card, {
+						title: t('fd.list.title'),
+						note: folder.capped ? t('fd.list.capped', { n: grouped(folder.shown) }) : t('fd.list.note')
+					}, h(FileGroups, { files: folder.files })),
+				folder.others > 0
+					? h('div', { className: 'epc-note' }, t('fd.others', { n: grouped(folder.others) }))
+					: null);
+		}
+
 		/* ============================ command palette ============================ */
 		function CommandPalette(props) {
 			var index = useIndex();
@@ -3393,6 +3681,28 @@ function contractList(data) {
 			{ id: 'quality', cluster: 'delivery', icon: 'quality' },
 			{ id: 'documents', cluster: 'records', icon: 'documents' }
 		];
+
+		/* One page per subject folder. The project is organised as ten folders and
+		   each of them is a place a reader goes looking for something: the drawings,
+		   the photographs, the evidence that a takeover certificate was signed. The
+		   eight sections above read the records inside those folders; these pages
+		   show the folders themselves, including the two — photographs and videos —
+		   that carry no structured record at all. */
+		var FOLDER_VIEWS = [
+			{ id: 'f_contracts', folder: 'contracts', cluster: 'folders', icon: 'contracts' },
+			{ id: 'f_defects', folder: 'defects', cluster: 'folders', icon: 'defects' },
+			{ id: 'f_drawings', folder: 'drawings', cluster: 'folders', icon: 'drawings' },
+			{ id: 'f_letters', folder: 'letters', cluster: 'folders', icon: 'letters' },
+			{ id: 'f_materials', folder: 'materials', cluster: 'folders', icon: 'materials' },
+			{ id: 'f_meetings', folder: 'meetings', cluster: 'folders', icon: 'meetings' },
+			{ id: 'f_payments', folder: 'payments', cluster: 'folders', icon: 'payments' },
+			{ id: 'f_photos', folder: 'photos', cluster: 'folders', icon: 'photos' },
+			{ id: 'f_taking_overs', folder: 'taking_overs', cluster: 'folders', icon: 'taking_overs' },
+			{ id: 'f_videos', folder: 'videos', cluster: 'folders', icon: 'videos' }
+		];
+
+		var NAV_VIEWS = VIEWS.concat(FOLDER_VIEWS);
+
 
 		/* Every record the dataset carries: letters, minutes, defects, subcontract
 		   certificates and main-contract IPAs. Kept in one place so the statusbar
@@ -3761,12 +4071,21 @@ function contractList(data) {
 				quality: data.defects.openCount,
 				documents: data.docs.contracts.length + data.docs.toc.length + data.docs.materials.length
 			} : {};
+			/* A folder page is named after the folder, so its badge is the folder's
+			   own file count — the one number a reader wants before opening it. A
+			   folder that is not there carries no badge rather than a zero. */
+			if (data && data.folders) {
+				FOLDER_VIEWS.forEach(function (v) {
+					var n = folderCount(data, v.folder);
+					if (n > 0) counts[v.id] = n;
+				});
+			}
 
 			var clusters = useMemo(function () {
-				var order = ['project', 'delivery', 'records'];
+				var order = ['project', 'delivery', 'records', 'folders'];
 				var map = {};
 				order.forEach(function (c) { map[c] = []; });
-				VIEWS.forEach(function (v) { (map[v.cluster] || (map[v.cluster] = [])).push(v); });
+				NAV_VIEWS.forEach(function (v) { (map[v.cluster] || (map[v.cluster] = [])).push(v); });
 				return order.map(function (c) { return [c, map[c] || []]; }).filter(function (e) { return e[1].length > 0; });
 			}, []);
 
@@ -3807,6 +4126,7 @@ function contractList(data) {
 				else if (view === 'correspondence') body = h(ViewCorrespondence, pass);
 				else if (view === 'meetings') body = h(ViewMeetings, pass);
 				else if (view === 'quality') body = h(ViewQuality, pass);
+				else if (view.indexOf('f_') === 0) body = h(ViewFolder, { data: data, folderKey: view.slice(2) });
 				else body = h(ViewDocuments, pass);
 			}
 
@@ -3864,8 +4184,10 @@ function contractList(data) {
 									},
 										h('span', { className: 'epc-navglyph' }, h(Icon, { name: v.icon, size: 15 })),
 										h('span', { className: 'epc-navlabel' }, t('view.' + v.id)),
-										!mini && count !== undefined && v.id === 'quality' && count > 0
-											? h('span', { className: 'epc-badge' }, count > 999 ? '999+' : String(count))
+										!mini && count !== undefined && count > 0
+											? h('span', {
+												className: 'epc-badge' + (v.cluster === 'folders' ? ' quiet' : '')
+											}, count > 9999 ? '9k+' : String(count))
 											: null);
 								}));
 						}),

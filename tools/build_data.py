@@ -1720,6 +1720,116 @@ def _files(d):
         return []
 
 
+# --------------------------------------------------------------------- folder files
+# One row per file in each subject folder. The workbench gives each of the project's
+# folders a page of its own, and a page that can only say '950 drawings' is a
+# summary, not a view of the folder: a reader who opens it wants to see the files.
+# The rows are built here, bounded per folder, because the index beside them already
+# carries every searchable record and duplicating it would double the payload.
+FOLDER_FILES_CAP = 600
+DRAWING_FILE_CAP = 900
+DRAWING_EXTS = (".pdf", ".dwg", ".dwf", ".dxf", ".plt", ".ctb")
+# A folder that has been through an OCR pass holds the tooling as well as the
+# letters: tesseract binaries, its language data, a log per document and a pycache
+# beside the script that drove it. None of that is a project record, and a letters
+# page that lists tesseract's own files is listing the workbench's plumbing.
+LISTING_SKIP_DIRS = ("__pycache__", "tesseract_bin", "tessdata", "logs", "log")
+FOLDER_LISTING = (
+    ("contracts", "contracts", (r"contract", r"agreement"), (".md", ".pdf", ".docx", ".doc")),
+    ("defects", "defects", (r"defect",), None),
+    ("drawings", "drawings", (r"drawing", r"图纸"), DRAWING_EXTS),
+    ("letters", "letters", (r"letter",), (".md", ".txt", ".pdf", ".docx", ".doc")),
+    ("materials", "materials", (r"material",), None),
+    ("meetings", "meetings", (r"meeting", r"minute"), (".md", ".txt", ".pdf", ".docx", ".doc")),
+    ("payments", "payments", (r"payment", r"ipc", r"certif"), (".xlsx", ".xlsm", ".xls", ".pdf", ".docx")),
+    ("photos", "photos", (r"photo", r"image"), (".jpg", ".jpeg", ".png", ".heic", ".tif", ".tiff", ".bmp")),
+    ("taking_overs", "toc", (r"taking.?over", r"toc", r"hand.?over"), None),
+    ("videos", "videos", (r"video", r"movie"), (".mp4", ".mov", ".avi", ".mkv", ".wmv", ".m4v")),
+)
+
+
+def _listing_skip(path, folder):
+    """Whether a file sits in a tooling folder rather than the project's own."""
+    rel = os.path.relpath(path, folder).replace("\\", "/").lower()
+    return any(part in LISTING_SKIP_DIRS for part in rel.split("/")[:-1])
+
+
+
+def _file_rows(folder, rel, exts=None, cap=None):
+    """Rows for the files under a folder, at most ``cap`` of them.
+
+    A folder of drawings holds a thousand files across three levels of discipline and
+    format, and a payments folder holds certificates beside a register. Each row says
+    what the file is, how big it is and where it sits relative to the project, which is
+    what a folder page needs; the cap keeps a 1,272-file drawings folder from deciding
+    the size of the payload on its own.
+
+    Returns the rows and the number of files that match, which can exceed the rows: a
+    page that says '600 files' about a folder holding 1,272 is worse than no page, so
+    the true count travels beside the truncated list.
+    """
+    rows = []
+    if not folder or not os.path.isdir(folder):
+        return rows, 0, 0
+    limit = cap if cap is not None else FOLDER_FILES_CAP
+    matched = 0
+    others = 0
+    for path in _walk_files(folder, depth=8):
+        name = os.path.basename(path)
+        ext = os.path.splitext(name)[1].lower()
+        if exts is not None and ext not in exts:
+            others += 1
+            continue
+        if _listing_skip(path, folder):
+            continue
+        matched += 1
+        if len(rows) >= limit:
+            continue
+        sub = os.path.relpath(os.path.dirname(path), folder).replace("\\", "/")
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            size = 0
+        rows.append({
+            "name": name,
+            "size": size,
+            "ext": ext.lstrip("."),
+            "sub": "" if sub == "." else sub,
+            "rel": os.path.relpath(path, ROOT).replace("\\", "/"),
+        })
+    rows.sort(key=lambda r: (r["sub"], r["name"]))
+    return rows, matched, others
+
+
+def scan_folder_files():
+    """One listing per subject folder, whether or not it feeds another section.
+
+    The project is organised as ten folders, and each one gets a page: contracts,
+    defects, drawings, letters, materials, meetings, payments, photos, taking-overs
+    and videos. Eight of those are already read into a section of their own — the
+    listing is for the page that shows the folder itself, including the two (photos and
+    videos) that carry no structured record at all.
+    """
+    docs = (CFG["sources"].get("docs") or {}) if CFG else {}
+    out = {}
+    missing = []
+    for key, source_key, patterns, exts in FOLDER_LISTING:
+        cap = DRAWING_FILE_CAP if key == "drawings" else FOLDER_FILES_CAP
+        folder = _dir(docs.get(source_key), patterns, None)
+        if folder is None:
+            folder = _dir(key, patterns, None)
+        rows, matched, others = _file_rows(folder, key, exts, cap)
+        out[key] = {"dir": os.path.relpath(folder, ROOT).replace("\\", "/") if folder else None,
+                    "files": rows,
+                    "count": matched,
+                    "shown": len(rows),
+                    "others": others,
+                    "capped": matched > len(rows)}
+        if not matched:
+            missing.append(key)
+    return out, missing
+
+
 def _count_docs(d):
     """Files under a document folder, counting one level of subfolders.
 
@@ -2089,6 +2199,10 @@ def main(argv=None):
 
     docs = scan_docs()
 
+    print("listing the subject folders ...")
+    folders, folders_missing = scan_folder_files()
+    print("  folders:", dict((k, v["count"]) for k, v in folders.items()))
+
     print("reading main-contract certificates ...")
     main_contract = load_main_ipas()
     if main_contract:
@@ -2121,6 +2235,7 @@ def main(argv=None):
         "certificate": cert,
         "mainContract": main_contract,
         "docs": docs,
+        "folders": folders,
         "defectRows": defects[:400],
     }
 

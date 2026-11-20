@@ -202,6 +202,15 @@
 .epc-notes-ok{margin-bottom:2px}
 .epc-notes-k+.epc-notes-l+.epc-notes-k{margin-top:13px}
 .epc-notes-hint{margin-top:11px;padding-top:10px;border-top:1px solid var(--epc-line2);font-size:11.5px;line-height:1.5;color:var(--epc-muted)}
+.epc-badge.quiet{background:transparent;color:var(--epc-dim);border:1px solid var(--epc-line2);padding:2px 5px}
+/* ---------- subject folder pages ---------- */
+.epc-files{display:flex;flex-direction:column;gap:14px}
+.epc-filegroup{display:flex;flex-direction:column;gap:0}
+.epc-filegroup-h{display:flex;align-items:baseline;gap:8px;padding:7px 0 5px;border-bottom:1px solid var(--epc-line2)}
+.epc-filegroup-n{font:600 11px/1.2 var(--epc-mono);letter-spacing:.02em;color:var(--epc-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.epc-filegroup-c{font:500 10px/1 var(--epc-mono);color:var(--epc-dim);white-space:nowrap;margin-left:auto}
+.epc-filegroup .epc-table{margin-top:0}
+.epc-dim{color:var(--epc-dim)}
 .epc-wait{display:flex;flex-direction:column;gap:7px;align-items:flex-start;padding:36px 30px;margin:8px 0 0;border:1px solid var(--epc-line2);border-radius:8px;background:var(--epc-panel2)}
 .epc-wait-k{font-weight:650;font-size:13px;color:var(--epc-text);display:flex;align-items:center;gap:8px}
 .epc-wait-k::after{content:"";width:9px;height:9px;border-radius:99px;background:var(--epc-accent);animation:epc-pulse 1.1s ease-in-out infinite}

@@ -354,6 +354,33 @@ Two rules make the mixed page honest:
 The strip then shows `demo: <n>` beside the missing-part count; both open the same list,
 which names the sections in each group.
 
+### The `folders` listing
+
+The extractor walks each subject folder and publishes a listing per folder beside the
+sections, so every folder has a page of its own:
+
+| field | meaning |
+| --- | --- |
+| `folders.<key>.dir` | the folder's path relative to the project, or `null` when it is absent |
+| `folders.<key>.files` | rows of `{name, size, ext, sub, rel}`, at most 600 (900 for drawings) |
+| `folders.<key>.count` | every matching file, which can exceed the rows |
+| `folders.<key>.shown` | how many rows are listed |
+| `folders.<key>.others` | files present but not of this kind — documents in a videos folder |
+| `folders.<key>.capped` | whether the listing was truncated |
+
+The keys are `contracts`, `defects`, `drawings`, `letters`, `materials`, `meetings`,
+`payments`, `photos`, `taking_overs` and `videos`. Each folder accepts a fixed set of
+formats — `photos` counts images, `videos` counts video files, `drawings` counts
+`pdf/dwg/dwf/dxf/plt/ctb` — so a folder's count is the number of files of the kind the
+page is named after, not the number of everything under it. Tooling folders
+(`__pycache__`, `tesseract_bin`, `tessdata`, `logs`) are skipped: a folder that has been
+through an OCR pass holds the OCR tool as well as the letters.
+
+An **empty** folder is not substituted from the demo — the page renders with a count of
+zero, because a project with no photographs is a fact a reader may need. The demo stands
+in only for a folder the payload has no entry for at all, recorded as
+`origins["folders.<key>"] = "demo"`.
+
 ## Regenerating the demo dataset
 
 `data/` in this repository is synthetic — see `tools/make_demo.py`. Regenerate it with:

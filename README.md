@@ -28,6 +28,7 @@ monospaced data columns. Dark and light themes, English and Chinese copy.
 | **Meetings** | Minute books grouped by series, volume chart, filterable register |
 | **Quality & Defects** | Defect register with status, overdue count, severity and priority mix, top locations, and a filterable table showing days remaining |
 | **Documents** | Contract and insurance documents, taking-over certificates (issued vs draft), signed certificate scans indexed by reference, material submission packages, media counts, retention and advance balances |
+| **Project folders** | One page per subject folder — contracts, defects, drawings, letters, materials, meetings, payments, photos, taking-overs and videos. Each page lists what the folder holds, grouped by subfolder, with size and format; format and subfolder bars; a rail badge carrying the folder's own file count |
 
 Global search (`⌘K` / `Ctrl-K`) runs over the flat record index — one row per letter,
 minute, defect, certificate and scanned certificate — and jumps to the owning view.
@@ -63,6 +64,24 @@ That layout works as it stands — nothing has to be renamed. In particular:
 - **defects**, **materials**, **taking_overs** (`taking-overs` too — the hyphen is
   fine) and **videos** each feed their own card without being asked for by name;
 - a **photos** folder that is empty is reported as empty rather than as a fault.
+
+### A page per folder
+
+The rail ends with a **Project folders** cluster: one page for each of the ten folders.
+The eight sections above read the *records inside* those folders — a certificate is not a
+file listing — and the folder pages answer the other question, what the folder holds:
+
+- every file, grouped by the subfolder it was filed in, with its size and format;
+- bars by format (`PDF 549`, `CAD 351`) and by subfolder (`6 Electrical 233`);
+- a labelled count for a folder that is empty, and a different one for a folder that
+  holds files none of which are records of this kind — a `videos` folder of four
+  documents is not an empty folder, and saying so is how a reader learns it;
+- the true file count beside the listed rows when the listing is capped: the extractor
+  lists at most 600 files per folder (900 for drawings), and a page that claims a
+  drawings folder holds 900 files when it holds 969 is worse than no page.
+
+Empty folders render, deliberately. A project with no photographs yet still has a
+photographs page, and that page is how the reader learns there are none.
 
 ## Reading a real project from the interface
 

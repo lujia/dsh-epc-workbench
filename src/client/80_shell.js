@@ -123,6 +123,28 @@
 			{ id: 'documents', cluster: 'records', icon: 'documents' }
 		];
 
+		/* One page per subject folder. The project is organised as ten folders and
+		   each of them is a place a reader goes looking for something: the drawings,
+		   the photographs, the evidence that a takeover certificate was signed. The
+		   eight sections above read the records inside those folders; these pages
+		   show the folders themselves, including the two — photographs and videos —
+		   that carry no structured record at all. */
+		var FOLDER_VIEWS = [
+			{ id: 'f_contracts', folder: 'contracts', cluster: 'folders', icon: 'contracts' },
+			{ id: 'f_defects', folder: 'defects', cluster: 'folders', icon: 'defects' },
+			{ id: 'f_drawings', folder: 'drawings', cluster: 'folders', icon: 'drawings' },
+			{ id: 'f_letters', folder: 'letters', cluster: 'folders', icon: 'letters' },
+			{ id: 'f_materials', folder: 'materials', cluster: 'folders', icon: 'materials' },
+			{ id: 'f_meetings', folder: 'meetings', cluster: 'folders', icon: 'meetings' },
+			{ id: 'f_payments', folder: 'payments', cluster: 'folders', icon: 'payments' },
+			{ id: 'f_photos', folder: 'photos', cluster: 'folders', icon: 'photos' },
+			{ id: 'f_taking_overs', folder: 'taking_overs', cluster: 'folders', icon: 'taking_overs' },
+			{ id: 'f_videos', folder: 'videos', cluster: 'folders', icon: 'videos' }
+		];
+
+		var NAV_VIEWS = VIEWS.concat(FOLDER_VIEWS);
+
+
 		/* Every record the dataset carries: letters, minutes, defects, subcontract
 		   certificates and main-contract IPAs. Kept in one place so the statusbar
 		   cannot drift away from the search index. */
@@ -490,12 +512,21 @@
 				quality: data.defects.openCount,
 				documents: data.docs.contracts.length + data.docs.toc.length + data.docs.materials.length
 			} : {};
+			/* A folder page is named after the folder, so its badge is the folder's
+			   own file count — the one number a reader wants before opening it. A
+			   folder that is not there carries no badge rather than a zero. */
+			if (data && data.folders) {
+				FOLDER_VIEWS.forEach(function (v) {
+					var n = folderCount(data, v.folder);
+					if (n > 0) counts[v.id] = n;
+				});
+			}
 
 			var clusters = useMemo(function () {
-				var order = ['project', 'delivery', 'records'];
+				var order = ['project', 'delivery', 'records', 'folders'];
 				var map = {};
 				order.forEach(function (c) { map[c] = []; });
-				VIEWS.forEach(function (v) { (map[v.cluster] || (map[v.cluster] = [])).push(v); });
+				NAV_VIEWS.forEach(function (v) { (map[v.cluster] || (map[v.cluster] = [])).push(v); });
 				return order.map(function (c) { return [c, map[c] || []]; }).filter(function (e) { return e[1].length > 0; });
 			}, []);
 
@@ -536,6 +567,7 @@
 				else if (view === 'correspondence') body = h(ViewCorrespondence, pass);
 				else if (view === 'meetings') body = h(ViewMeetings, pass);
 				else if (view === 'quality') body = h(ViewQuality, pass);
+				else if (view.indexOf('f_') === 0) body = h(ViewFolder, { data: data, folderKey: view.slice(2) });
 				else body = h(ViewDocuments, pass);
 			}
 
@@ -593,8 +625,10 @@
 									},
 										h('span', { className: 'epc-navglyph' }, h(Icon, { name: v.icon, size: 15 })),
 										h('span', { className: 'epc-navlabel' }, t('view.' + v.id)),
-										!mini && count !== undefined && v.id === 'quality' && count > 0
-											? h('span', { className: 'epc-badge' }, count > 999 ? '999+' : String(count))
+										!mini && count !== undefined && count > 0
+											? h('span', {
+												className: 'epc-badge' + (v.cluster === 'folders' ? ' quiet' : '')
+											}, count > 9999 ? '9k+' : String(count))
 											: null);
 								}));
 						}),

@@ -697,6 +697,99 @@ def build_docs():
     }
 
 
+# A page per subject folder is part of the interface, so the demo has to carry a
+# listing for each of the ten — otherwise a fresh install shows ten empty pages and
+# the feature looks broken until a real folder is read.
+DEMO_FOLDERS = (
+    ("contracts", ("contracts",), [
+        ("ADVE_P01", "NGA-MEL-C008 subcontract - signed.pdf", 1840000, "pdf"),
+        ("ADVE_P01", "C008-Addendum-01.md", 9480, "md"),
+        ("ADVE_P02", "NGA-MEL-C009 subcontract - signed.pdf", 1760000, "pdf"),
+        ("CEB_MAIN", "NGA-MEL main contract - signed.pdf", 3120000, "pdf"),
+        ("CEB_MAIN", "MoU - price escalation.docx", 27706, "docx"),
+    ]),
+    ("defects", ("defects",), [
+        ("", "DL.xlsx", 149655, "xlsx"),
+        ("Original Civil Defect Lists", "Defect list 2024-06.pdf", 2860000, "pdf"),
+        ("Original Civil Defect Lists", "Defect list 2025-03.pdf", 2410000, "pdf"),
+    ]),
+    ("drawings", ("drawings",), [
+        ("1 Layout", "NRS-1001 General arrangement.pdf", 860000, "pdf"),
+        ("1 Layout", "NRS-1002 Site plan.pdf", 740000, "pdf"),
+        ("3 Structure", "NRS-3001 Gantry frame.dwg", 1240000, "dwg"),
+        ("3 Structure", "NRS-3002 Reactor bay.pdf", 980000, "pdf"),
+        ("6 Electrical", "NRS-6001 Single line diagram.pdf", 640000, "pdf"),
+        ("6 Electrical", "NRS-6002 Cable schedule.xlsx", 128000, "xlsx"),
+    ]),
+    ("letters", ("letters",), [
+        ("md_Letters_issued_to_ADVE", "NGA-MEL-NRS-C-014 Notice of delay.md", 12400, "md"),
+        ("md_Letters_issued_to_ADVE", "NGA-MEL-NRS-C-015 Method statement.md", 9800, "md"),
+        ("md_Letters_received_from_ADVE", "MEL-NGA-NRS-R-009 Claim notice.md", 11200, "md"),
+    ]),
+    ("materials", ("materials",), [
+        ("NRS01", "NRS01 material list.xlsx", 88000, "xlsx"),
+        ("NRS02", "NRS02 submittal register.xlsx", 64000, "xlsx"),
+        ("NRS03", "NRS03 sample approval.md", 5600, "md"),
+    ]),
+    ("meetings", ("meetings",), [
+        ("meetings_NGA_MEL", "NGA-MEL-MoM-104-20260302.md", 18400, "md"),
+        ("meetings_NGA_MEL", "NGA-MEL-MoM-105-20260406.md", 17600, "md"),
+        ("meetings_MEL_CWL", "MEL-CWL-MoM-088-20260320.md", 15200, "md"),
+    ]),
+    ("payments", ("payments",), [
+        ("", "NRS. Interim Payment Records.xlsx", 264000, "xlsx"),
+        ("ADVE_IPCs", "IPC~P1", "MEL-CWL-008-IPC-24.xlsx", 148000, "xlsx"),
+        ("Main_Contract_IPC", "NGA-MEL-IPA-14.xlsx", 156000, "xlsx"),
+    ]),
+    ("photos", ("photos",), [
+        ("2026-03 site progress", "DSC_0142.jpg", 3820000, "jpg"),
+        ("2026-03 site progress", "DSC_0143.jpg", 3610000, "jpg"),
+        ("2026-05 site progress", "DSC_0388.jpg", 4020000, "jpg"),
+    ]),
+    ("taking_overs", ("taking_overs",), [
+        ("", "NRS - Taking Over Certificate 1 - Reactor Bay.pdf", 512000, "pdf"),
+        ("", "NRS - Taking Over Certificate 2 - Control Building.pdf", 498000, "pdf"),
+        ("", "Taking over certificate 3 - draft.docx", 96000, "docx"),
+    ]),
+    ("videos", ("videos",), [
+        ("", "Site progress March 2026.mp4", 48200000, "mp4"),
+    ]),
+)
+
+
+def build_folders():
+    """One listing per subject folder, shaped exactly as the extractor emits it.
+
+    The rows are a sample rather than a copy of any real folder: the page counts what
+    it is given, so the demo says three files where a real folder says seven hundred.
+    """
+    out = {}
+    for key, dir_parts, rows in DEMO_FOLDERS:
+        files = []
+        for row in rows:
+            if len(row) == 4:
+                sub, name, size, ext = row
+            else:
+                sub, name, size, ext = row[1], row[2], row[3], row[4]
+                sub = row[0] + "/" + row[1]
+            files.append({
+                "name": name,
+                "size": size,
+                "ext": ext,
+                "sub": sub,
+                "rel": "/".join(p for p in (key, sub, name) if p),
+            })
+        out[key] = {
+            "dir": key,
+            "files": files,
+            "count": len(files),
+            "shown": len(files),
+            "others": 0,
+            "capped": False,
+        }
+    return out
+
+
 # --------------------------------------------------------------------------
 # Index
 # --------------------------------------------------------------------------
@@ -772,6 +865,7 @@ def main():
         "certificate": build_certificate(payments),
         "mainContract": main_contract,
         "docs": build_docs(),
+        "folders": build_folders(),
         "defectRows": defects_raw[:180],
     }
 

@@ -136,6 +136,35 @@ def sections_of(data):
     return {name: bool(test(data)) for name, test in PRESENCE.items()}
 
 
+def merge_folders(folder, demo, origins):
+    """One listing per subject folder, each from whichever side actually holds it.
+
+    A project organised by subject folders usually has some of them empty — a
+    project with no photographs yet still has a photographs page, and that page is
+    how a reader learns there are none. Showing the demo's four photographs there
+    would be a lie about this project, so an EMPTY folder becomes an empty page.
+
+    The demo stands in only for the folders the folder page was never pointed at at
+    all, which is the case where the payload has no entry for the key: a project
+    that predates the folder pages, or one where discovery found no such folder. The
+    difference between 'this folder is empty' and 'this project has no such folder'
+    is the whole point of the page, so the two are not collapsed.
+    """
+    own = (folder or {}).get("folders") or {}
+    theirs = (demo or {}).get("folders") or {}
+    if not own and not theirs:
+        return None
+    out = {}
+    for key in set(list(own.keys()) + list(theirs.keys())):
+        mine = own.get(key)
+        if mine is not None:
+            out[key] = mine
+            continue
+        out[key] = theirs.get(key)
+        origins["folders." + key] = "demo"
+    return out
+
+
 def _kind_order(contracts):
     """Contract ids by kind, in register order: two mains, two subs, and so on."""
     out = {}
@@ -333,6 +362,10 @@ def merge(folder, demo):
                         if k in ("currencies",) and v})
         out["project"] = project
         origins["project"] = "demo"
+
+    merged_folders = merge_folders(folder, demo, origins)
+    if merged_folders is not None:
+        out["folders"] = merged_folders
 
     out["origins"] = origins
     out["demoSections"] = [k for k, v in origins.items() if v == "demo"]
