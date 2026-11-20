@@ -42,6 +42,28 @@ main-contract certificates. It exists so the plugin renders something meaningful
 first install; no real project data is included, and `tools/make_demo.py` regenerates it
 deterministically.
 
+### A folder organised by subject
+
+A project folder is usually organised by what the records are, not by what the
+application needs:
+
+```
+CYE_Project/
+  contracts/   defects/   drawings/   letters/   materials/
+  meetings/    payments/  photos/     taking_overs/  videos/
+```
+
+That layout works as it stands — nothing has to be renamed. In particular:
+
+- **payments** is found by its contents (subfolders of certificate workbooks), at
+  whatever depth the project nests them, so `payments/ADVE_IPCs/IPC~P1` and
+  `payments/Main_Contract_IPC` are both recognised as certificate folders;
+- **drawings** becomes a register of sets: how many drawings each discipline or
+  transmittal holds, counting the `CAD`/`PDF` folders and the date folders inside;
+- **defects**, **materials**, **taking_overs** (`taking-overs` too — the hyphen is
+  fine) and **videos** each feed their own card without being asked for by name;
+- a **photos** folder that is empty is reported as empty rather than as a fault.
+
 ## Reading a real project from the interface
 
 Once the plugin is installed you do not have to write a configuration file to see a real

@@ -684,6 +684,16 @@ def build_docs():
             {"name": "NRS03", "files": 7},
         ],
         "media": {"photos": 148, "videos": 2, "pdfLetters": 41},
+        # A drawing register is a set per discipline, so the demo states the same
+        # shape the reader produces: named sets and the files behind them.
+        "drawings": [
+            {"name": "1 General arrangement", "files": 34},
+            {"name": "2 Civil and structural", "files": 96},
+            {"name": "3 Electrical", "files": 61},
+            {"name": "4 Control and protection", "files": 28},
+            {"name": "5 Vendor drawings", "files": 17},
+        ],
+        "drawingFiles": 236,
     }
 
 

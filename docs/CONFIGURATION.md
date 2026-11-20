@@ -296,6 +296,31 @@ The chosen folder is remembered in `$DSH_HOME/cache/epc-workbench/state.json`, a
 folder that no longer exists falls back to the bundled dataset instead of breaking the
 page.
 
+### What counts as a payments folder
+
+The payments folder is found by what it holds, not by what it is called. A corpus
+calls it `payments`, `IPCs`, `interim certificates` or `valuations`, and matching the
+name alone stops working the day a project renames it — which is how `defects` and
+`drawings` once became subcontracts, since both hold a workbook.
+
+So discovery looks for *folders of certificates*: subfolders anywhere under the first
+folder that hold workbooks whose names carry a certificate number (`IPC-52`,
+`IPA-55`, `P-048`, `retention`). The top-level folder that holds them becomes the
+payment root, a subfolder matching `main contract | employer | owner | client` becomes
+the main-contract folder, and every other one becomes a package.
+
+Depth is not fixed either: this project keeps its main certificates one level down
+(`payments/Main_Contract_IPC`) and its two subcontracts two levels down
+(`payments/ADVE_IPCs/IPC~P1`), and both are found.
+
+### Letter series are de-duplicated
+
+An OCR pass leaves a backup beside the series (`_ocr_backup_20261002`) and the scan
+pile keeps extracted text under `pdf_letters/md`. Both read like a letter folder, and
+counting them would double the letter total and the register tile. A folder whose name
+looks like a copy (`backup`, `old`, `copy`, `tmp`, `draft`, `tesseract`, `logs`) is
+skipped, and two folders that would produce the same series keep the fuller one.
+
 ### No folder is refused
 
 Every build ends in a merged dataset, never in an error sentence. `runBuild` has one exit:

@@ -1720,6 +1720,96 @@ def _files(d):
         return []
 
 
+def _count_docs(d):
+    """Files under a document folder, counting one level of subfolders.
+
+    A corpus that keeps its scans in one place piles them under a couple of folders
+    by year or by month, and counting only what sits at the top read that pile as
+    nearly empty.
+    """
+    if d is None:
+        return 0
+    total = 0
+    for name in _files(d):
+        if not name.startswith("~$"):
+            total += 1
+    try:
+        names = sorted(os.listdir(d))
+    except OSError:
+        names = []
+    for name in names:
+        sub = os.path.join(d, name)
+        if os.path.isdir(sub):
+            total += len([f for f in _files(sub) if not f.startswith("~$")])
+    return total
+
+
+def _drawing_walk(d, depth=2):
+    """How many drawings sit under a folder, counting the issue folders inside it.
+
+    A drawing set is filed by discipline, then by format (CAD beside PDF), then
+    sometimes by transmittal date — three levels before a file appears. Counting only
+    what sits directly in the set folder read '3 Structure' — two hundred and
+    twenty-two drawings — as empty, and the drawing register then listed the two
+    sets that happened to keep their files flat.
+    """
+    total = 0
+    if d is None or depth < 0:
+        return total
+    for name in _files(d):
+        if (os.path.splitext(name)[1].lower() in (".pdf", ".dwg", ".dwf", ".dxf", ".plt", ".ctb")
+                and not name.startswith("~$")):
+            total += 1
+    if depth > 0:
+        try:
+            names = sorted(os.listdir(d))
+        except OSError:
+            names = []
+        for name in names:
+            sub = os.path.join(d, name)
+            if os.path.isdir(sub):
+                total += _drawing_walk(sub, depth - 1)
+    return total
+
+
+def _scan_drawings(d, missing):
+    """Drawing sets under a drawings folder: one row per subfolder.
+
+    A drawings folder is a set of issue packages rather than a pile of files — each
+    subfolder is one discipline or one transmittal, and what matters on the page is
+    how many sets there are and how much they hold, not the individual drawings. The
+    named sets are also what makes a drawing register useful, so the folder names are
+    kept with their counts.
+    """
+    if d is None:
+        return [], 0
+    sets, total = [], 0
+    try:
+        names = sorted(os.listdir(d))
+    except OSError:
+        names = []
+
+    def _drawing(ext):
+        return ext in (".pdf", ".dwg", ".dwf", ".dxf", ".plt", ".ctb")
+    loose = 0
+    for name in _files(d):
+        if _drawing(os.path.splitext(name)[1].lower()) and not name.startswith("~$"):
+            loose += 1
+    if loose:
+        sets.append({"name": "(top level)", "files": loose})
+        total += loose
+    for name in names:
+        sub = os.path.join(d, name)
+        if not os.path.isdir(sub):
+            continue
+        drawn = _drawing_walk(sub)
+        if drawn:
+            sets.append({"name": name, "files": drawn})
+            total += drawn
+    sets.sort(key=lambda s: -s["files"])
+    return sets, total
+
+
 def scan_docs():
     docs = (CFG["sources"].get("docs") or {}) if CFG else {}
     missing = []
@@ -1750,11 +1840,14 @@ def scan_docs():
                     mats.append({"name": name, "files": 0})
     counts = {"photos": len(_files(_dir(docs.get("photos"), (r"photo", r"image", r"picture"), missing))),
               "videos": len(_files(_dir(docs.get("videos"), (r"video", r"movie", r"clip"), missing))),
-              "pdfLetters": len(_files(_dir(docs.get("pdfLetters"), (r"pdf", r"letter", r"scan"), missing)))}
-    if missing and not (contracts or toc or mats or any(counts.values())):
+              "pdfLetters": _count_docs(_dir(docs.get("pdfLetters"), (r"pdf", r"letter", r"scan"), missing))}
+    drawing_sets, drawing_files = _scan_drawings(_dir(docs.get("drawings"), (r"drawing", r"图纸"), missing),
+                                                missing)
+    if missing and not (contracts or toc or mats or drawing_sets or any(counts.values())):
         warn("documents: none of the folders %s was found, so the document section is empty"
              % ", ".join(missing))
-    return {"contracts": contracts, "toc": toc, "materials": mats, "media": counts}
+    return {"contracts": contracts, "toc": toc, "materials": mats, "media": counts,
+            "drawings": drawing_sets, "drawingFiles": drawing_files}
 
 
 # --------------------------------------------------------------------------- register

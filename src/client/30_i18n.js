@@ -350,6 +350,9 @@
 			'scope.contractor': 'Main contractor',
 
 			/* signed certificate scans */
+			'dc.drawings': 'Drawings',
+			'dc.sub.drawings': '{n} sets',
+			'dc.drawings.note': '{n} drawings across {s} sets',
 			'dc.scans': 'Signed certificates',
 			'dc.sub.scans': '{a} amended',
 			'dc.scans.note': '{n} scanned certificates from the employer, indexed by reference — the certificates carry no text layer, so amounts come from the workbook series',
@@ -711,6 +714,9 @@
 			'scope.sub.party': '分包商',
 			'scope.contractor': '总承包商',
 
+			'dc.drawings': '图纸',
+			'dc.sub.drawings': '{n} 套',
+			'dc.drawings.note': '{s} 套共 {n} 张图纸',
 			'dc.scans': '签字证书',
 			'dc.sub.scans': '{a} 份修订',
 			'dc.scans.note': '{n} 份业主签发的扫描版证书，按编号建立索引 — 扫描件无可提取文字层，金额取自工作簿序列',

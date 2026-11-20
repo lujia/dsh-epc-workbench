@@ -161,9 +161,17 @@
 			var amended = scans.filter(function (s) { return s.amended; }).length;
 			var docRet = lastRetention(data, subScopeIds(data)[0]);
 
+			var drawingSets = docs.drawings || [];
+			var drawingFiles = docs.drawingFiles || 0;
+			/* Three bars share one scale. It used to be the photo count, so a project
+			   with no photographs drew every bar full and a project with many drew
+			   them all empty. */
+			var mediaMax = Math.max(docs.media.photos || 0, docs.media.videos || 0,
+				docs.media.pdfLetters || 0, 1);
 			var kpis = [
 				{ label: t('dc.contracts'), value: String(docs.contracts.length), unit: null, sub: t('dc.sub.contracts') },
 				{ label: t('dc.toc'), value: String(docs.toc.length), unit: null, sub: t('dc.sub.toc', { i: issued.length, d: draft.length }) },
+				{ label: t('dc.drawings'), value: grouped(drawingFiles), unit: null, sub: t('dc.sub.drawings', { n: drawingSets.length }) },
 				{ label: t('dc.scans'), value: String(scans.length), unit: null, sub: t('dc.sub.scans', { a: amended }) },
 				{ label: t('dc.media'), value: grouped(docs.media.photos + docs.media.videos + docs.media.pdfLetters), unit: null, sub: t('dc.sub.media') }
 			];
@@ -246,11 +254,25 @@
 										m.files === 1 ? t('dc.file.one') : t('dc.files.n', { n: m.files })));
 							}))),
 
+					drawingSets.length > 0
+						? h(Card, { title: t('dc.drawings'), note: t('dc.drawings.note', { n: grouped(drawingFiles), s: drawingSets.length }), flush: true },
+							h('div', { className: 'epc-lbars', style: { padding: '12px 13px' } },
+								drawingSets.slice(0, 12).map(function (s, i) {
+									return h(ListBar, {
+										key: 'd' + i,
+										label: s.name,
+										value: s.files,
+										max: drawingSets[0].files || 1,
+										display: grouped(s.files)
+									});
+								})))
+						: null,
+
 					h(Card, { title: t('dc.media') },
 						h('div', { className: 'epc-lbars' },
-							h(ListBar, { label: t('dc.photos'), value: docs.media.photos, max: docs.media.photos, display: grouped(docs.media.photos) }),
-							h(ListBar, { label: t('dc.pdfletters'), value: docs.media.pdfLetters, max: docs.media.photos, display: grouped(docs.media.pdfLetters), color: 'var(--epc-warn)' }),
-							h(ListBar, { label: t('dc.videos'), value: docs.media.videos, max: docs.media.photos, display: grouped(docs.media.videos), color: 'var(--epc-good)' })),
+							h(ListBar, { label: t('dc.photos'), value: docs.media.photos, max: mediaMax, display: grouped(docs.media.photos) }),
+							h(ListBar, { label: t('dc.pdfletters'), value: docs.media.pdfLetters, max: mediaMax, display: grouped(docs.media.pdfLetters), color: 'var(--epc-warn)' }),
+							h(ListBar, { label: t('dc.videos'), value: docs.media.videos, max: mediaMax, display: grouped(docs.media.videos), color: 'var(--epc-good)' })),
 						h('div', { className: 'epc-splitline', style: { marginTop: '14px' } }, t('dc.retention')),
 						h('dl', { className: 'epc-kv' },
 							h('dt', null, t('co.kpi.retention')), h('dd', { className: 'epc-mono' }, grouped(docRet ? docRet.retCum : null, 2)),

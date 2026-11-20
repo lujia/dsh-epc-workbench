@@ -401,6 +401,22 @@ def _subdirs(folder):
         return []
 
 
+CERT_NAME_RE = re.compile(r"(?:\bIPC[\s\-_~]*\d|\bIPA[\s\-_]*\d|-P-?\d{2,}\b|retention|advance)",
+                          re.I)
+
+
+def _certificate_files(folder):
+    """The workbooks in a folder that read like interim payment certificates.
+
+    A package folder holds one workbook per certificate plus a retention sheet, and
+    their names carry the certificate number — 'CMEC-ADVE-C008-IPC-52.xlsx',
+    'CYE-CMEC-CEB-IPA-55.xlsx', 'P01_IPC_Retention and Advance Payment.xlsx'. Asking
+    for that name is how a payments folder is told apart from any other folder that
+    happens to contain a workbook.
+    """
+    return [n for n in _xlsx_files(folder) if CERT_NAME_RE.search(n)]
+
+
 def _letter_head(path, limit=14):
     """The ``[Key] value`` lines at the top of a letter, whatever carries them."""
     out = {}
@@ -974,6 +990,33 @@ def _walk(folder, depth=3, limit=4000):
     return out
 
 
+def _files_only(folder):
+    """The plain files in a folder, ignoring subfolders and lock copies."""
+    try:
+        return [n for n in sorted(os.listdir(folder))
+                if not n.startswith(("~$", ".")) and os.path.isfile(os.path.join(folder, n))]
+    except OSError:
+        return []
+
+
+def _walk_dir_pairs(folder, rel_prefix, depth=2):
+    """Every directory under a folder, shallowest first, with its relative path.
+
+    Shallowest first matters: a package folder and the certificate folders inside it
+    can both be candidates, and the outer one is the package the register names.
+    """
+    out = []
+    if not os.path.isdir(folder):
+        return out
+    for sub in _subdirs(folder):
+        out.append((os.path.join(rel_prefix, sub), os.path.join(folder, sub)))
+    if depth > 1:
+        for sub in _subdirs(folder):
+            out.extend(_walk_dir_pairs(os.path.join(folder, sub),
+                                       os.path.join(rel_prefix, sub), depth - 1))
+    return out
+
+
 def _md_dirs(folder, depth=3):
     """Directories that hold markdown, shallowest first."""
     return [p for p, _d in _walk(folder, depth)
@@ -1124,10 +1167,34 @@ def discover(folder):
             "tokens_last": toks_last,
         }
 
+    def _is_copy(d):
+        """A folder that holds a copy of another folder's letters rather than letters.
+
+        A corpus accumulates an OCR backup, a staging folder, a `pdf_letters/md`
+        holding the same series again. Counting one of those as a series doubles both
+        the letter total and the register tile, and the reader has no way to tell
+        which copy is the record.
+        """
+        low = os.path.basename(d).lower()
+        return bool(re.search(r"backup|bak\b|_old|old_|copy|tmp|temp|stage|draft|__pycache__|"
+                              r"tessdata|tesseract|logs?$|md$", low))
+
+    def _series_dup(got):
+        """Two folders for one series: keep the fuller one."""
+        for i, other in enumerate(series):
+            if other["dir"] == got["dir"]:
+                continue
+            if (other["side"] == got["side"] and other["prefix"] == got["prefix"]
+                    and (other.get("other") or "") == (got.get("other") or "")):
+                if got["count"] > other["count"]:
+                    series[i] = got
+                return True
+        return False
+
     for d in top:
         full = os.path.join(folder, d)
         md = _md_files(full)
-        if not md or not LETTER_DIR_RE.search(d):
+        if not md or not LETTER_DIR_RE.search(d) or _is_copy(d):
             continue
         if not re.search(r"issued|received|sent|outgoing|incoming|from|to", d, re.I):
             # The folder name says nothing about direction, but the letters in it do,
@@ -1136,7 +1203,7 @@ def discover(folder):
             if not (head.get("LetterNo") or head.get("RefNo")):
                 continue
         got = _series_from(d, full, md)
-        if got is not None:
+        if got is not None and not _series_dup(got):
             series.append(got)
     if not series:
         # Nothing at the top level reads like a letter series: the letters are grouped
@@ -1145,12 +1212,12 @@ def discover(folder):
         seen_dirs = set()
         for full in _md_dirs(folder, depth=3):
             rel = os.path.relpath(full, folder).replace("\\", "/")
-            if rel in seen_dirs or rel == ".":
+            if rel in seen_dirs or rel == "." or _is_copy(rel):
                 continue
             seen_dirs.add(rel)
             md = _md_files(full)
             got = _series_from(rel, full, md)
-            if got is not None:
+            if got is not None and not _series_dup(got):
                 series.append(got)
     if not series:
         notes.append("no letter series were recognised (a folder named …letters… holding "
@@ -1208,20 +1275,45 @@ def discover(folder):
                      "holding markdown)")
 
     # ---------------------------------------------------------------- contracts
-    ipc_dirs = [d for d in top if re.search(r"ipc|payment certif|certificate", d, re.I)]
-    ipc_root = os.path.join(folder, ipc_dirs[0]) if ipc_dirs else folder
-    package_dirs, main_dir = [], ""
-    for d in _subdirs(ipc_root):
-        full = os.path.join(ipc_root, d)
-        xl = _xlsx_files(full)
-        if not xl:
-            continue
-        if re.search(r"main.?contract|employer|owner|client", d, re.I):
-            main_dir = os.path.join(os.path.basename(ipc_root), d)
-        else:
-            package_dirs.append(os.path.join(os.path.basename(ipc_root), d))
-    if not package_dirs and _xlsx_files(ipc_root) and not main_dir:
-        package_dirs = [""]
+    # The payments folder is called 'payments' here, 'IPCs' there, 'interim
+    # certificates' elsewhere, so matching the top-level name alone finds nothing the
+    # day a project renames it — and then every top-level folder holding a workbook
+    # looks like a package folder, which is how 'defects' and 'drawings' became
+    # subcontracts. Pick the folder by what it holds: subfolders of certificates.
+    ipc_dirs = [d for d in top
+                if re.search(r"ipc|payment|certif|billing|valuation|invoice", d, re.I)]
+    # A parallel-column file holds each payment certificate; find the folders that
+    # hold them, at whatever depth the project grouped them. Here the main-contract
+    # certificates sit one level down (payments/Main_Contract_IPC) and the two
+    # subcontracts two levels down (payments/ADVE_IPCs/IPC~P1), because the project
+    # groups them by subcontractor first. A search that assumes one fixed depth finds
+    # the main contract and calls the subcontracts missing.
+    scored_dirs = []
+    for cand in ipc_dirs + [d for d in top if d not in ipc_dirs]:
+        full = os.path.join(folder, cand)
+        for sub_rel, sub_full in _walk_dir_pairs(full, cand, depth=2):
+            if _certificate_files(sub_full):
+                scored_dirs.append((sub_rel, sub_full))
+        if scored_dirs:
+            break
+    ipc_root, package_dirs, main_dir = folder, [], ""
+    if scored_dirs:
+        ipc_root = os.path.join(folder, scored_dirs[0][0].split(os.sep)[0])
+        for rel, full in scored_dirs:
+            name = os.path.basename(rel.rstrip("\\/")) or rel
+            if re.search(r"main.?contract|employer|owner|client", name, re.I):
+                if not main_dir or len(_certificate_files(full)) > len(_certificate_files(os.path.join(folder, main_dir))):
+                    main_dir = rel
+            elif not re.search(r"retention|advance", name, re.I):
+                package_dirs.append(rel)
+    if not package_dirs and not main_dir:
+        # No folder of certificate subfolders anywhere: the certificates sit directly
+        # in a payments folder, so that folder is the package root itself.
+        for cand in ipc_dirs:
+            full = os.path.join(folder, cand)
+            if _certificate_files(full):
+                ipc_root, package_dirs = full, [""]
+                break
     if main_dir:
         sources["mainContractDir"] = main_dir.replace("\\", "/")
 
@@ -1270,12 +1362,33 @@ def discover(folder):
             docs["toc"] = d
         elif re.search(r"material", low) and "materials" not in docs:
             docs["materials"] = d
+        elif re.search(r"\bdrawing|图纸", low) and "drawings" not in docs:
+            docs["drawings"] = d
         elif re.search(r"photo|image", low) and "photos" not in docs:
             docs["photos"] = d
         elif re.search(r"video", low) and "videos" not in docs:
             docs["videos"] = d
         elif re.search(r"pdf.?letter", low) and "pdfLetters" not in docs:
             docs["pdfLetters"] = d
+    # A drawings folder is a drawing set per subfolder, and a corpus that keeps its
+    # scans in one place puts them under the letters. Look inside the letters folder
+    # for the scan pile rather than requiring it beside them.
+    if "pdfLetters" not in docs:
+        letters_top = next((d for d in top if re.search(r"letter", d, re.I)), "")
+        if letters_top:
+            for sub in _subdirs(os.path.join(folder, letters_top)):
+                if re.search(r"pdf", sub, re.I):
+                    docs["pdfLetters"] = os.path.join(letters_top, sub)
+                    break
+    if "drawings" not in docs:
+        for sub in top:
+            full = os.path.join(folder, sub)
+            sets = [s for s in _subdirs(full)
+                    if len([n for n in _files_only(os.path.join(full, s))
+                            if n.lower().endswith((".pdf", ".dwg", ".dwf"))]) >= 5]
+            if len(sets) >= 3:
+                docs["drawings"] = sub
+                break
     sources["docs"] = docs
 
     # ---------------------------------------------------------------- certificate header
