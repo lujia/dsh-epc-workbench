@@ -187,12 +187,33 @@
 .epc-src-demo:hover{border-color:var(--epc-line2);color:var(--epc-text)}
 .epc-src-demo.on{color:var(--epc-text);border-color:var(--epc-line2);background:var(--epc-panel)}
 .epc-notes-demo{color:var(--epc-muted)}
+.epc-src-blank{appearance:none;border:1px dashed var(--epc-line2);border-radius:99px;background:transparent;color:var(--epc-muted);font:600 10px/1 var(--epc-mono);letter-spacing:.04em;padding:4px 8px;cursor:pointer;white-space:nowrap}
+.epc-src-blank:hover{border-color:var(--epc-dim);color:var(--epc-text)}
+.epc-src-blank.on{border-color:var(--epc-accent);color:var(--epc-accent)}
+.epc-notes-blank{color:var(--epc-muted)}
+.epc-notes-blank li::marker{color:var(--epc-dim)}
 .epc-src-notes{appearance:none;border:1px solid var(--epc-line2);border-radius:99px;background:transparent;color:var(--epc-warn,var(--epc-accent));font:600 10px/1 var(--epc-mono);letter-spacing:.04em;padding:4px 8px;cursor:pointer;white-space:nowrap}
 .epc-src-notes:hover{background:var(--epc-hover)}
 .epc-src-notes.on{background:var(--epc-panel);border-color:var(--epc-warn,var(--epc-accent))}
 /* Everything was found: the same pill, in the colour that means "no gap". */
 .epc-src-notes.ok{color:var(--epc-acc2,var(--epc-accent));border-color:color-mix(in srgb,var(--epc-acc2,var(--epc-accent)) 45%,var(--epc-line2))}
 .epc-src-notes.ok.on{border-color:var(--epc-acc2,var(--epc-accent))}
+/* ---------- model picker ---------- */
+.epc-models{width:min(560px,92vw);max-height:70vh}
+.epc-models .epc-pal-in{gap:10px}
+.epc-models .epc-dim{font:500 11px/1.3 var(--epc-mono);color:var(--epc-dim);max-width:34ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.epc-models-group{padding:4px 2px 6px}
+.epc-models-gk{font:600 9.5px/1 var(--epc-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--epc-dim);padding:6px 9px 5px}
+.epc-models-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;width:100%;text-align:left;appearance:none;border:1px solid transparent;border-radius:7px;background:transparent;color:var(--epc-text);padding:7px 9px;cursor:pointer;font:inherit}
+.epc-models-row:hover{background:var(--epc-soft)}
+.epc-models-row.on{border-color:color-mix(in srgb,var(--epc-accent) 55%,var(--epc-line2));background:color-mix(in srgb,var(--epc-accent) 10%,transparent)}
+.epc-models-n{font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.epc-models-b{font:600 9.5px/1 var(--epc-mono);color:var(--epc-accent);border:1px solid color-mix(in srgb,var(--epc-accent) 45%,var(--epc-line2));border-radius:4px;padding:3px 5px;justify-self:end}
+.epc-models-d{grid-column:1/-1;font:500 10.5px/1.35 var(--epc-mono);color:var(--epc-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.epc-models-empty{padding:14px;font-size:12px;color:var(--epc-muted)}
+.epc-btn.on{border-color:color-mix(in srgb,var(--epc-accent) 55%,var(--epc-line2));color:var(--epc-accent)}
+.epc-btn[disabled]{opacity:.45;cursor:default}
+
 .epc-src-model{font:600 10px/1 var(--epc-mono);letter-spacing:.02em;color:var(--epc-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:34ch;padding:4px 2px}
 .epc-src .grow{flex:1 1 auto}
 .epc-notes{margin:7px 0 0;padding:11px 13px 12px;border:1px solid var(--epc-line2);border-radius:7px;background:var(--epc-panel2);font-size:11.5px;color:var(--epc-muted)}

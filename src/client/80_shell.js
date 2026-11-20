@@ -201,6 +201,7 @@
 			var notes = props.notes || [];
 			var found = props.found || [];
 			var demo = (active && active.demo) || [];
+			var blank = (active && active.blank) || [];
 			var isFolder = active && active.source === 'folder';
 			return h('div', { className: 'epc-src' + (isFolder ? ' on' : '') },
 				h('span', { className: 'epc-src-k' }, t('src.title')),
@@ -218,6 +219,16 @@
 					: null,
 				busy
 					? h('span', { className: 'epc-src-busy' }, h('i', { className: 'epc-dot' }), t('src.reading'))
+					: null,
+				blank.length > 0
+					/* Empty because the folder does not hold the records, not because
+					   the project has none. The distinction is the whole point of a
+					   blank section: it says what to add, not what is zero. */
+					? h('button', {
+						className: 'epc-src-blank' + (props.notesOpen ? ' on' : ''),
+						onClick: props.onToggleNotes,
+						title: t('src.blank.hint')
+					}, t('src.blank', { n: blank.length }))
 					: null,
 				demo.length > 0
 					/* The page is a real read of the folder with the demo standing in
@@ -272,11 +283,68 @@
 				}, t('src.reset')) : null);
 		}
 
+		/* The model picker.
+		   Reading a folder with a model asks which model before it starts: the
+		   installation usually has several, they differ in cost and in how much
+		   they can read in one call, and the choice belongs to the reader rather
+		   than to whatever the session happens to be using. The list comes from the
+		   host, because the browser cannot see the model catalogue. A picker that
+		   cannot load still works: it offers the session's own model and says so. */
+		function ModelPicker(props) {
+			var groups = props.providers || [];
+			var [chosen, setChosen] = useState(props.current || null);
+			if (props.error) {
+				return h('div', { className: 'epc-pal-mask', onClick: props.onCancel },
+					h('div', { className: 'epc-pal epc-models', onClick: function (e) { e.stopPropagation(); } },
+						h('div', { className: 'epc-pal-in' }, h('strong', null, t('src.models.title'))),
+						h('div', { className: 'epc-models-empty' }, props.error),
+						h('div', { className: 'epc-pal-f' },
+							h('span', { className: 'grow' }),
+							h('button', { className: 'epc-btn', onClick: props.onCancel }, t('src.models.cancel')))));
+			}
+			var flat = [];
+			groups.forEach(function (g) {
+				(g.models || []).forEach(function (m) { flat.push({ provider: g.id, model: m.id, name: m.name, badge: m.badge, group: g.name }); });
+			});
+			return h('div', { className: 'epc-pal-mask', onClick: props.onCancel },
+				h('div', { className: 'epc-pal epc-models', onClick: function (e) { e.stopPropagation(); } },
+					h('div', { className: 'epc-pal-in' },
+						h('strong', null, t('src.models.title')),
+						h('span', { className: 'epc-dim' }, t('src.models.note'))),
+					h('div', { className: 'epc-pal-list' },
+						groups.map(function (g) {
+							return h('div', { key: g.id, className: 'epc-models-group' },
+								h('div', { className: 'epc-models-gk' }, g.name || g.id),
+								(g.models || []).map(function (m) {
+									var on = chosen && chosen.provider === g.id && chosen.model === m.id;
+									return h('button', {
+										key: g.id + '/' + m.id,
+										className: 'epc-models-row' + (on ? ' on' : ''),
+										onClick: function () { setChosen({ provider: g.id, model: m.id }); }
+									},
+										h('span', { className: 'epc-models-n' }, m.name || m.id),
+										m.badge ? h('span', { className: 'epc-models-b' }, m.badge) : null,
+										m.description ? h('span', { className: 'epc-models-d' }, m.description) : null);
+								}));
+						}),
+						flat.length === 0 ? h('div', { className: 'epc-models-empty' }, t('src.models.none')) : null),
+					h('div', { className: 'epc-pal-f' },
+						h('span', { className: 'epc-dim' }, chosen ? t('src.models.picked', { model: chosen.model }) : t('src.models.pick')),
+						h('span', { className: 'grow' }),
+						h('button', { className: 'epc-btn', onClick: props.onCancel }, t('src.models.cancel')),
+						h('button', {
+							className: 'epc-btn on',
+							disabled: !chosen,
+							onClick: function () { if (chosen) props.onStart(chosen); }
+						}, t('src.models.start')))));
+		}
+
 		function NoteList(props) {
 			var notes = props.notes || [];
 			var found = props.found || [];
 			var demo = props.demo || [];
-			if (notes.length === 0 && found.length === 0 && demo.length === 0) return null;
+			var blank = props.blank || [];
+			if (notes.length === 0 && found.length === 0 && demo.length === 0 && blank.length === 0) return null;
 			return h('div', { className: 'epc-notes' },
 				notes.length > 0
 					? h('div', { className: 'epc-notes-k' }, t('src.notes.title', { n: notes.length }))
@@ -308,6 +376,19 @@
 						return h('li', { key: 'd' + i }, n);
 					}))
 					: null,
+				blank.length > 0
+					? h('div', { className: 'epc-notes-k' }, t('src.blank.title', { n: blank.length }))
+					: null,
+				blank.length > 0
+					? h('ul', { className: 'epc-notes-l epc-notes-blank' }, blank.map(function (n, i) {
+						return h('li', { key: 'b' + i }, n);
+					}))
+					: null,
+				blank.length > 0
+					/* What the page is waiting for. A list of missing sections is a
+					   diagnosis; this is the instruction beside it. */
+					? h('div', { className: 'epc-notes-hint' }, t('src.blank.add'))
+					: null,
 				props.hint
 					/* The reader recognised nothing at all. That is not a dead end
 					   any more, but the way out is a button in the strip, and a
@@ -334,6 +415,9 @@
 			var [sourceError, setSourceError] = useState(null);
 			var [readProgress, setReadProgress] = useState('');
 			var [notesOpen, setNotesOpen] = useState(false);
+			/* The picker is open while the reader is choosing which model reads the
+			   folder, and the catalogue it shows is fetched when it opens. */
+			var [picker, setPicker] = useState(null);
 
 			function load() {
 				setState({ status: 'loading', data: null, error: null });
@@ -372,7 +456,7 @@
 			   drop the cached parse and reload. Reading a real project takes a
 			   minute or two, so the wait is a poll of /state rather than one long
 			   request that a proxy could time out. */
-			function chooseFolder(url) {
+			function chooseFolder(url, route) {
 				var workspace = typeof props.ctx.get === 'function' ? props.ctx.get('uiWorkspace') : null;
 				if (!workspace || typeof workspace.pickDirectory !== 'function') {
 					setSourceError(t('src.no.picker'));
@@ -383,7 +467,12 @@
 					if (!folder) return null;
 					setReading(true);
 					setReadProgress(t('src.reading'));
-					return postJson(url, { folder: folder }).then(function () {
+					var body = { folder: folder };
+					/* The model the reader picked, when they picked one. Sent with the
+					   request rather than stored here: the host owns the build, and a
+					   second tab picking a different model must not fight over it. */
+					if (route) body.route = route;
+					return postJson(url, body).then(function () {
 						return waitForBuild(folder, 0);
 					});
 				}).catch(function (err) {
@@ -400,7 +489,32 @@
 			   was thin and the user wants the model's instead. Same wait, different
 			   route: the host does the describing and asking. */
 			function analyzeFolder() {
-				chooseFolder(ANALYZE_URL);
+				/* Ask which model first. The catalogue is fetched once, when the
+				   picker opens, because it is the host's to know and can change
+				   between one read and the next. */
+				setPicker({ loading: true, providers: [], current: null, error: null });
+				fetch(MODELS_URL, { credentials: 'same-origin' })
+					.then(function (res) {
+						if (!res.ok) throw new Error('the model catalogue could not be read (' + res.status + ')');
+						return res.json();
+					})
+					.then(function (json) {
+						var providers = (json && json.providers) || [];
+						setPicker({
+							loading: false,
+							providers: providers,
+							current: (json && json.current) || null,
+							error: providers.length === 0 ? t('src.models.none') : null
+						});
+					})
+					.catch(function (err) {
+						setPicker({ loading: false, providers: [], current: null, error: String(err && err.message ? err.message : err) });
+					});
+			}
+
+			function startAnalyze(route) {
+				setPicker(null);
+				chooseFolder(ANALYZE_URL, route);
 			}
 
 			function waitForBuild(folder, tries) {
@@ -501,6 +615,11 @@
 			   chip in the strip says how many; this says which, because '4 sections
 			   from the demo' is useless without knowing whether payments is one of
 			   them. */
+			var readBlank = useMemo(function () {
+				var list = (source && source.active && source.active.blank) || [];
+				return list.map(function (k) { return t('src.section.' + k); });
+			}, [source]);
+
 			var readDemo = useMemo(function () {
 				return ((source && source.active && source.active.demo) || []).map(function (k) {
 					return t('src.section.' + k);
@@ -655,7 +774,7 @@
 								onAnalyze: analyzeFolder,
 								onReset: resetSource
 							}),
-							notesOpen ? h(NoteList, { notes: readNotes, found: readFound, demo: readDemo, hint: readHint }) : null),
+							notesOpen ? h(NoteList, { notes: readNotes, found: readFound, demo: readDemo, blank: readBlank, hint: readHint }) : null),
 						h('div', { className: 'epc-scroll' }, body))),
 
 				h('div', { className: 'epc-status' },
@@ -667,7 +786,17 @@
 						scopeNo !== null ? h('em', null, scopeNo) : null,
 						data ? h('em', null, flowLabel) : null)),
 
-				palette ? h(CommandPalette, { onClose: function () { setPalette(false); }, onSelect: onSelectResult }) : null);
+				palette ? h(CommandPalette, { onClose: function () { setPalette(false); }, onSelect: onSelectResult }) : null,
+				/* The picker sits above the page rather than inside the strip: a strip
+				   button that opened a list in place would push the page down while the
+				   reader is deciding, and this is a decision, not a progress step. */
+				picker ? h(ModelPicker, {
+					providers: picker.providers,
+					current: picker.current,
+					error: picker.error,
+					onStart: startAnalyze,
+					onCancel: function () { setPicker(null); }
+				}) : null);
 		}
 
 		/* ============================ styles ============================ */

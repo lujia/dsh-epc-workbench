@@ -205,6 +205,60 @@ way still reads. When no header row is recognisable the reader keeps the positio
 was written against, and when the header puts a field somewhere unusual the strip says so
 (`the columns are not in the usual order`).
 
+### The model picker
+
+`GET /plugins/epc-workbench/models` answers:
+
+```json
+{ "current": { "provider": "workbuddy", "model": "deepseek-v4.1-flash" },
+  "providers": [ { "id": "workbuddy", "name": "WorkBuddy",
+                   "models": [ { "id": "deepseek-v4.1-flash", "name": "...", "description": "...", "badge": "" } ] } ] }
+```
+
+It exists because the model catalogue lives in the host half: `ctx.get('llm')` is not
+visible to the page. `POST /plugins/epc-workbench/analyze` accepts an optional route:
+
+```json
+{ "folder": "D:/projects/coal-yard", "mode": "model",
+  "route": { "provider": "workbuddy", "model": "deepseek-v4.1-flash" } }
+```
+
+Without a route the session's current selection is used, so the button works from a
+script. The route is per request rather than stored, so two tabs cannot overwrite each
+other's choice.
+
+### One call per subfolder
+
+The folder is read one subject at a time. `analyzeConfig()` lists the immediate
+subfolders and, for each, runs `tools/inventory.py` on that subfolder alone and passes the
+result to `analyzeFolder(..., { subfolder, index, total })`. The prompt is prefixed with
+which folder this call covers and the rule that a field it cannot evidence is left out
+rather than reconstructed.
+
+Each answer is re-anchored onto the project root before merging (`reanchor()`): model
+answers name paths as they were shown them, relative to the subfolder, while every
+downstream reader resolves them against the root. A path is moved only when the filesystem
+agrees it exists under the subfolder and not at the root.
+
+`mergeConfigs()` then folds the answers: first stated scalar wins; parties, contracts,
+letters and meetings merge by id; one currency stays primary; a caption the folder invented
+(a model that did not name the project) is replaced by one a model did state. A field no
+answer establishes stays absent.
+
+### Blank sections are the default after a real read
+
+`tools/merge_dataset.py --blank` keeps a section the folder did not provide empty instead
+of standing the demo in for it, and prints it:
+
+```
+demo sections: none
+blank sections: letters, defects, payments, retention, certificate, mainContract
+```
+
+The host always passes `--blank` for a folder read; the demo fill remains for
+`Use demo data` and for the bundled dataset. The strip shows the count (`blank: 6`) and
+the list names the sections with one instruction: add the records and read again.
+
 ## Reading a folder with the model
 
 The two buttons in the project strip are two different readers:

@@ -18,3 +18,4 @@ window.__ModuleLoader__.load({
 		var FOLDER_URL = ROUTE_PREFIX + '/folder';
 		var ANALYZE_URL = ROUTE_PREFIX + '/analyze';
 		var RESET_URL = ROUTE_PREFIX + '/reset';
+	var MODELS_URL = ROUTE_PREFIX + '/models';

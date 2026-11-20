@@ -27,11 +27,11 @@
  *   POST /reset                   go back to the bundled dataset
  */
 import { spawn } from 'node:child_process';
-import { analyzeFolder } from './analyze.js';
-import { access, copyFile, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { analyzeFolder, mergeConfigs, reanchor } from './analyze.js';
+import { access, copyFile, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { constants as fsConstants } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { tmpdir, homedir } from 'node:os';
 
@@ -48,6 +48,7 @@ const ROUTE_STATE = `${ROUTE_PREFIX}/state`;
 const ROUTE_FOLDER = `${ROUTE_PREFIX}/folder`;
 const ROUTE_ANALYZE = `${ROUTE_PREFIX}/analyze`;
 const ROUTE_RESET = `${ROUTE_PREFIX}/reset`;
+const ROUTE_MODELS = `${ROUTE_PREFIX}/models`;
 
 export const inject = ['webServer'];
 
@@ -141,6 +142,9 @@ const active = {
 	model: null,
 	// Sections the picked folder did not provide, standing in from the demo.
 	demo: [],
+	// Sections the folder did not provide at all. A real read leaves these empty
+	// rather than filling them from the demo, so the page can say what to add.
+	blank: [],
 };
 
 const build = {
@@ -179,7 +183,7 @@ async function saveState() {
 		await mkdir(cacheRoot(), { recursive: true });
 		await writeFile(
 			await stateFile(),
-			JSON.stringify({ dir: active.dir, source: active.source, folder: active.folder, builtAt: active.builtAt, notes: active.notes, found: active.found, model: active.model, demo: active.demo }, null, 1),
+			JSON.stringify({ dir: active.dir, source: active.source, folder: active.folder, builtAt: active.builtAt, notes: active.notes, found: active.found, model: active.model, demo: active.demo, blank: active.blank }, null, 1),
 			'utf8',
 		);
 	} catch {
@@ -201,6 +205,7 @@ async function restoreState() {
 			active.found = Array.isArray(raw.found) ? raw.found : [];
 			active.model = typeof raw.model === 'string' ? raw.model : null;
 			active.demo = Array.isArray(raw.demo) ? raw.demo : [];
+	active.blank = Array.isArray(raw.blank) ? raw.blank : [];
 		}
 	} catch {
 		/* no previous build, or it was cleaned up: the bundled dataset is the default */
@@ -362,7 +367,7 @@ async function datasetIsEmpty(dir) {
  * folder filled it and from the demo when it did not, and records which — so the
  * strip can say which parts of the page are standing in.
  */
-async function mergeWithDemo(python, dataDir) {
+async function mergeWithDemo(python, dataDir, blank = false) {
 	const demo = datasetPaths(DATA_DIR);
 	const folder = datasetPaths(dataDir);
 	if (!(await exists(folder.data))) {
@@ -377,16 +382,97 @@ async function mergeWithDemo(python, dataDir) {
 		);
 		if (!(await exists(folder.index))) await writeFile(folder.index, '[]', 'utf8');
 	}
-	const result = await run(
-		[python, join(ROOT, 'tools', 'merge_dataset.py'), folder.data, demo.data, dataDir],
-		ROOT,
-	);
+	// A real read fills only what the folder established: a section the folder does
+	// not carry stays blank and is re-read when the records arrive. The demo stands
+	// in only for the first run and for 'Use demo data', where the page is meant to
+	// be an example rather than a report.
+	const argv = [python, join(ROOT, 'tools', 'merge_dataset.py'), folder.data, demo.data, dataDir];
+	if (blank) argv.push('--blank');
+	const result = await run(argv, ROOT);
 	build.log += result.stdout + result.stderr;
+	if (result.code !== 0) return { demo: [], blank: [] };
+	const list = (label) => {
+		const line = new RegExp('^' + label + ' sections: (.*)$', 'm').exec(result.stdout || '');
+		const text = line ? line[1].trim() : '';
+		if (!text || text === 'none') return [];
+		return text.split(',').map((s) => s.trim()).filter(Boolean);
+	};
+	return { demo: list('demo'), blank: list('blank') };
+}
+
+/**
+ * The models a reader can run the extraction on.
+ *
+ * The host owns the model catalogue, so the page cannot ask for it directly: the
+ * client has no `llm` service. This lists what the installation actually has, with
+ * the selection the session is using so the picker can default to it.
+ */
+async function listModels(ctx) {
+	const llm = ctx.get('llm');
+	if (!llm || typeof llm.listProviders !== 'function') return { providers: [], current: null };
+	let providers = [];
+	try {
+		providers = await llm.listProviders();
+	} catch (error) {
+		build.log += 'the model catalogue could not be read: ' + safeMessage(error) + '\n';
+		return { providers: [], current: null };
+	}
+	const out = [];
+	for (const provider of providers || []) {
+		const id = provider && (provider.id || provider.provider);
+		if (!id) continue;
+		let models = [];
+		try {
+			models = await llm.listModels(id);
+		} catch {
+			models = [];
+		}
+		out.push({
+			id,
+			name: (provider && (provider.name || provider.label)) || id,
+			models: (models || []).map((m) => ({
+				id: m.id,
+				name: m.name || m.id,
+				description: m.description || '',
+				badge: m.badge || '',
+			})),
+		});
+	}
+	let current = null;
+	try {
+		const defaults = ctx.get('agentDefaultModel');
+		if (defaults && typeof defaults.currentSelection === 'function') {
+			const sel = defaults.currentSelection();
+			if (sel && sel.provider && sel.model) current = { provider: sel.provider, model: sel.model };
+		}
+	} catch {
+		current = null;
+	}
+	return { providers: out.filter((p) => p.models.length > 0), current };
+}
+
+async function handleModels(ctx, req, res) {
+	if (req.method !== 'GET') return json(res, 405, { error: 'method-not-allowed' });
+	if (!hostIsLocal(req)) return json(res, 403, { error: 'local-only' });
+	const body = await listModels(ctx);
+	return json(res, 200, body);
+}
+
+/**
+ * The subject folders to read, one call each.
+ *
+ * A folder of records is organised however its author liked, so the list comes from
+ * the folder itself — `tools/inventory.py --list` — and never from a fixed ten. The
+ * question this answers is only 'which immediate subfolders exist'; whether any of
+ * them is a contracts folder is the model's job, not this list's.
+ */
+async function listSubfolders(python, folder) {
+	const result = await run([python, join(ROOT, 'tools', 'inventory.py'), folder, join(tmpdir(), 'unused.json'), '--list'], ROOT);
 	if (result.code !== 0) return [];
-	const line = /^demo sections: (.*)$/m.exec(result.stdout || '');
-	const text = line ? line[1].trim() : '';
-	if (!text || text === 'none') return [];
-	return text.split(',').map((s) => s.trim()).filter(Boolean);
+	return result.stdout
+		.split('\n')
+		.map((line) => line.trim())
+		.filter((line) => line !== '' && !line.startsWith('{'));
 }
 
 /**
@@ -399,59 +485,95 @@ async function mergeWithDemo(python, dataDir) {
  * When it exists the model's answer is merged INTO it rather than replacing it —
  * the reader parsed the workbooks, the model only saw a description of them.
  */
-async function analyzeConfig(ctx, python, folder, cfgPath, outDir, discoveredPath = null) {
-	build.phase = 'inventory';
-	build.log += `describing ${folder} for the model\n`;
-	const inventoryPath = join(outDir, 'inventory.json');
-	const read = await run([python, join(ROOT, 'tools', 'inventory.py'), folder, inventoryPath], ROOT);
-	build.log += read.stdout + read.stderr;
-	if (read.code !== 0) {
-		return {
-			config: null,
-			model: null,
-			notes: [`the folder could not be described for the model: ${(read.stderr || read.stdout).trim().slice(-300)}`],
-		};
-	}
-	let inventory;
-	try {
-		inventory = JSON.parse(await readFile(inventoryPath, 'utf8'));
-	} catch (error) {
-		return { config: null, model: null, notes: [`the folder description could not be read: ${safeMessage(error)}`] };
+async function analyzeConfig(ctx, python, folder, cfgPath, outDir, discoveredPath = null, route = null) {
+	// The folder is read one subject at a time. A project of any size holds more
+	// records than one answer can carry — seven thousand letters, a thousand drawings
+	// — and a model given all of it at once answers about the first thing it read.
+	// One call per subfolder keeps each answer small enough to be checked, and the
+	// answers are merged: a captioned project, a register, a series list, a price.
+	const subjects = await listSubfolders(python, folder);
+	const work = subjects.length > 0 ? subjects : [''];
+	build.log += `reading ${work.length} subject folder(s) with the model\n`;
+
+	const configs = [];
+	const notes = [];
+	let model = null;
+
+	for (let index = 0; index < work.length; index += 1) {
+		const subject = work[index];
+		const label = subject || basename(folder);
+		const target = subject ? join(folder, subject) : folder;
+		build.phase = 'inventory';
+		build.log += `\n[${index + 1}/${work.length}] ${label}\n`;
+		const inventoryPath = join(outDir, 'inventory-' + (index + 1) + '.json');
+		const read = await run([python, join(ROOT, 'tools', 'inventory.py'), target, inventoryPath], ROOT);
+		if (read.code !== 0) {
+			notes.push(`the folder ${label} could not be described for the model: ${(read.stderr || read.stdout).trim().slice(-200)}`);
+			build.log += 'skipped: ' + (read.stderr || read.stdout).trim().slice(-200) + '\n';
+			continue;
+		}
+		let inventory;
+		try {
+			inventory = JSON.parse(await readFile(inventoryPath, 'utf8'));
+		} catch (error) {
+			notes.push(`the description of ${label} could not be read: ${safeMessage(error)}`);
+			continue;
+		}
+		// The call is told which folder it is reading, so an answer about the
+		// drawings cannot quietly become an answer about the whole project.
+		inventory.name = label;
+		build.phase = 'model';
+		build.log += `asking the model about ${label}\n`;
+		const analysis = await analyzeFolder(ctx, folder, inventory, {
+			route: route || undefined,
+			subfolder: subject,
+			index: index + 1,
+			total: work.length,
+		});
+		if (analysis.model && !model) model = analysis.model;
+		for (const note of analysis.notes || []) if (!notes.includes(note)) notes.push(note);
+		if (analysis.config) {
+			// The answer names paths as the model was shown them — relative to this
+			// subfolder — while everything downstream resolves them against the root.
+			configs.push(reanchor(analysis.config, subject, folder));
+			build.log += `${label}: ${(analysis.config.contracts || []).length} contract(s), ${(analysis.config.letters || []).length} series\n`;
+		} else {
+			build.log += `${label}: no configuration\n`;
+		}
 	}
 
-	build.phase = 'model';
-	build.log += 'asking the model what this folder holds\n';
-	const analysis = await analyzeFolder(ctx, folder, inventory);
-	if (!analysis.config) return analysis;
+	const merged = mergeConfigs(configs);
+	if (!merged) return { config: null, model, notes };
+	notes.push(`the model read ${configs.length} of ${work.length} subject folder(s) and its answers were merged`);
 
 	// The picked folder is the root and the cache is the output, whatever the model
 	// said: an answer that names a path outside the folder still cannot read one.
-	analysis.config.sources = analysis.config.sources || {};
-	analysis.config.sources.root = folder;
-	analysis.config.sources.out = join(outDir, 'data');
-	analysis.config._notes = (analysis.notes || []).slice();
+	merged.sources = merged.sources || {};
+	merged.sources.root = folder;
+	merged.sources.out = join(outDir, 'data');
+	merged._notes = notes.slice();
 
 	const analysedPath = join(outDir, 'analysed.config.json');
-	await writeFile(analysedPath, JSON.stringify(analysis.config, null, 1), 'utf8');
+	await writeFile(analysedPath, JSON.stringify(merged, null, 1), 'utf8');
 
 	let finalPath = analysedPath;
 	if (discoveredPath && (await exists(discoveredPath))) {
 		// Merge, do not replace: see tools/merge_config.py. A model answer that
 		// names the wrong workbook must not overwrite a sheet the reader opened.
-		const merged = await run(
+		const mergedRun = await run(
 			[python, join(ROOT, 'tools', 'merge_config.py'), discoveredPath, analysedPath, cfgPath],
 			ROOT,
 		);
-		build.log += merged.stdout + merged.stderr;
-		if (merged.code === 0) {
+		build.log += mergedRun.stdout + mergedRun.stderr;
+		if (mergedRun.code === 0) {
 			finalPath = cfgPath;
-			const line = /^merged: (\d+) field/m.exec(merged.stdout || '');
-			analysis.mergedFields = line ? Number(line[1]) : 0;
+			const line = /^merged: (\d+) field/m.exec(mergedRun.stdout || '');
+			merged.mergedFields = line ? Number(line[1]) : 0;
 		}
 	}
 	if (finalPath !== cfgPath) await copyFile(finalPath, cfgPath);
-	build.log += `the configuration was written by ${analysis.model}\n`;
-	return analysis;
+	build.log += `the configuration was written by ${model}\n`;
+	return { config: merged, model, notes, mergedFields: merged.mergedFields || 0 };
 }
 
 /** The python scripts that do the reading, and the folder they read. */
@@ -473,8 +595,10 @@ async function runBuild(ctx, folder, options = {}) {
 	// folder that merely contains no records — the reported 'could not read that
 	// folder' was that throw, and a folder of invoices is not a broken read.
 	const finish = async (dir) => {
-		const demo = await mergeWithDemo(python, dir);
-		return { dir, notes, found, model, demo, partial: false };
+		// A real read leaves what the folder did not establish blank: the demo is the
+		// first run's example, not a fallback for every folder someone picks.
+		const merged = await mergeWithDemo(python, dir, true);
+		return { dir, notes, found, model, demo: merged.demo, blank: merged.blank, partial: false };
 	};
 
 	// Both buttons start from the same place: what the files themselves say. The
@@ -526,6 +650,7 @@ async function runBuild(ctx, folder, options = {}) {
 	const analysis = await analyzeConfig(
 		ctx, python, folder, cfgPath, outDir,
 		discoveredOk ? cfgPath : null,
+		options.route || null,
 	);
 	model = analysis.model;
 	for (const note of analysis.notes || []) if (!notes.includes(note)) notes.push(note);
@@ -576,6 +701,7 @@ async function startBuild(ctx, folder, options = {}) {
 			active.found = result.found;
 			active.model = result.model || null;
 			active.demo = result.demo || [];
+	active.blank = result.blank || [];
 			// Drop every cached parse: the same path can be rebuilt with new numbers.
 			cache.clear();
 			build.status = 'ready';
@@ -608,6 +734,7 @@ function handleState(req, res) {
 			found: active.found,
 			model: active.model,
 			demo: active.demo,
+		blank: active.blank,
 		},
 		build: {
 			status: build.status,
@@ -661,8 +788,14 @@ async function handleFolder(ctx, req, res, forcedMode) {
 	// The answer is the start of the work, not its end: reading a real project
 	// takes a minute or two, and the page polls /state for the result.
 	const wantsModel = forcedMode === 'model' || body.mode === 'model';
-	void startBuild(ctx, folder, { mode: wantsModel ? 'model' : 'reader' });
-	json(res, 202, { status: 'running', folder, mode: wantsModel ? 'model' : 'reader' });
+	// The picker's choice, when it made one. It is passed through rather than
+	// validated here: the llm service is the authority on which models exist, and a
+	// stale id from an old page fails the same way an unlisted one does.
+	const route = body.route && typeof body.route === 'object' && body.route.provider && body.route.model
+		? { provider: String(body.route.provider), model: String(body.route.model) }
+		: null;
+	void startBuild(ctx, folder, { mode: wantsModel ? 'model' : 'reader', route });
+	json(res, 202, { status: 'running', folder, mode: wantsModel ? 'model' : 'reader', route });
 }
 
 async function handleReset(req, res) {
@@ -681,6 +814,7 @@ async function handleReset(req, res) {
 	active.notes = [];
 	active.found = [];
 	active.demo = [];
+	active.blank = [];
 	// The last build's outcome belongs to the folder that was just dropped; keeping
 	// it would leave the page reporting a finished read of a project it no longer shows.
 	build.status = 'idle';
@@ -705,6 +839,7 @@ export function apply(ctx) {
 				webCtx.webServer.register({ kind: 'exact', path: ROUTE_DATA, handler: serveFile('data') }),
 				webCtx.webServer.register({ kind: 'exact', path: ROUTE_INDEX, handler: serveFile('index') }),
 				webCtx.webServer.register({ kind: 'exact', path: ROUTE_STATE, handler: handleState }),
+				webCtx.webServer.register({ kind: 'exact', path: ROUTE_MODELS, handler: (req, res) => handleModels(webCtx, req, res) }),
 				webCtx.webServer.register({
 					kind: 'exact',
 					path: ROUTE_FOLDER,

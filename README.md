@@ -110,10 +110,40 @@ away from the project, and the page reloads onto it. **The project folder is onl
 read.** The strip then names the folder and the time it was read, and lists anything the
 reader could not establish, so a blank field is never mistaken for a zero.
 
+### First use is the demo, a real read leaves blanks
+
+The page opens on the bundled demo dataset. That is the state the plugin ships in: a
+reader installing it on a machine with no project records yet still sees a complete
+workbench, and `Use demo data` returns to it at any time.
+
+A real read is the opposite. Once you choose a folder, every section comes from that
+folder or is left **empty** — nothing is quietly filled in from the demo:
+
+```
+PROJECT  field-notes  read 20 Nov 2026  [ blank: 6 ]   [ Choose folder ] [ Analyze with model ]
+```
+
+`blank: 6` opens a list naming the sections the folder does not hold — correspondence,
+defects, payments, retention, certificate, main contract — with one line telling you to
+add the records and read the folder again. A blank section is a fact about the folder
+(a project can have no defect register yet), and the page says so instead of borrowing
+another project's figures.
+
+The command line has the same switch:
+
+```bash
+python tools/build_data.py out/workbench.config.json
+python tools/merge_dataset.py out/data/workbench.json data/workbench.json out/data --blank
+```
+
+Without `--blank` the demo stands in; with it the unmatched sections stay empty. The
+bundled demo dataset is not touched either way.
+
 ### A folder that holds only some of the records
 
-No folder is refused. Whatever the reader (or the model) could not find stays as the
-bundled demo dataset, and the strip says how much is standing in:
+No folder is refused. When the demo is asked to stand in (`Use demo data`, or a first
+run on an installation with no dataset of its own), whatever the reader could not find
+stays as the bundled demo and the strip says how much is standing in:
 
 ```
 PROJECT  field-notes  read 18 Nov 2026  [ demo: 7 ]  [ 4 part(s) not found ]   [ Choose folder ] ...
@@ -240,11 +270,37 @@ which model described the layout (`layout by …`), so a reader can see where th
 the page came from. It is not a fallback that hides its failures: when the model cannot
 name a contract in the folder, the strip says so and the page stays as the reader left it.
 
-The model is asked with `ctx.get('llm')` on the route `ctx.get('agentDefaultModel')`
-currently selects — the same provider, model and reasoning effort as the conversation you
-are in. Nothing else is sent: no session, no conversation history, only the folder
-description. A build made this way is cached like any other, under
-`$DSH_HOME/cache/epc-workbench/<hash>/`, so re-opening the folder does not ask again.
+### Choosing the model, and one call per subfolder
+
+Pressing **Analyze with model** opens a picker first. It lists every provider and model
+the installation has, with the session's own model preselected, because the choice of
+model is the reader's: they differ in cost and in how much they can read in one call. The
+list comes from `GET /plugins/epc-workbench/models`, which is the host asking
+`ctx.get('llm').listProviders()` / `listModels()`; the browser cannot see the catalogue.
+Nothing else is sent: no session, no conversation history, only the inventories.
+
+The read then goes **one subfolder at a time**. A real project holds more than one answer
+can carry — seven thousand letters, a thousand drawings — and a model shown all of it at
+once answers about the first thing it read. So the host lists the folder's immediate
+subfolders (`tools/inventory.py --list`), builds an inventory of each, and asks the model
+about one at a time, telling it which:
+
+> This call covers ONE subfolder of the project: `contracts` (subfolder 1 of 11). …
+> Report only what these files establish, and omit every field they do not.
+
+Each answer is re-anchored onto the project root before it is used (`reanchor()` in
+`analyze.js`): a model shown `contracts` names `CEB_MAIN`, and the extractor resolves paths
+against the root, where that folder is `contracts/CEB_MAIN`. The check is the filesystem's,
+not a guess — a path is moved only when it exists under the subfolder and not at the root.
+
+The answers are then merged (`mergeConfigs()`): a scalar comes from the first answer that
+states it, identified lists (parties, contracts, letters, meetings) merge by id keeping
+every entry, exactly one currency stays primary, and a project caption the folder invented
+is replaced by one a model actually stated — reading `drawings` first must not caption the
+project `drawings`. A field no answer establishes stays absent, and its section is blank.
+
+Progress is per subfolder: the strip shows `[3/11] letters` while it works, and the log
+keeps each answer's contract and series counts.
 
 ## Installing as a Harness plugin
 

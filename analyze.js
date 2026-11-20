@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import path from 'node:path';
+
 /**
  * Turn a description of a project folder into a workbench config, using the model
  * the harness is already running.
@@ -133,13 +136,28 @@ function extractJson(text) {
 }
 
 /**
+ * What this particular call is looking at.
+ *
+ * The folder is read one subject at a time, so each call sees the inventory of one
+ * subfolder and is told which. Without that framing a model shown only the
+ * `drawings` inventory still answers with a whole project — a name, a contract
+ * number, a price — reconstructed from the folder path, and the merge has no way to
+ * tell that guess from something the drawings actually stated.
+ */
+function subfolderNote(subfolder, index, total) {
+	if (!subfolder) return '';
+	const position = total > 0 ? ` (subfolder ${index} of ${total})` : '';
+	return `This call covers ONE subfolder of the project: \`${subfolder}\`${position}. The inventory below describes that subfolder only. Report only what these files establish, and omit every field they do not: the other subfolders are being read separately and their answers are merged with this one. A field this subfolder cannot evidence is a field to leave out, not a field to reconstruct from the project name.`;
+}
+
+/**
  * One auxiliary model call, assembled to text.
  *
  * `purpose` is transport metadata the adapter carries for attribution; the model
  * never sees it. The route comes from the caller because the harness knows which
  * model the user is on and this module does not.
  */
-async function askModel(llm, route, inventory, signal) {
+async function askModel(llm, route, inventory, signal, subfolder = '', index = 0, total = 0) {
 	let text = '';
 	let finish = null;
 	const stream = llm.stream({
@@ -155,7 +173,10 @@ async function askModel(llm, route, inventory, signal) {
 			{
 				role: 'user',
 				content: [
-					{ type: 'text', text: `${PROMPT_TASK}\n\n${PROMPT_SCHEMA}\n\nINVENTORY\n${JSON.stringify(inventory)}` },
+					{
+						type: 'text',
+						text: `${subfolderNote(subfolder, index, total)}\n\n${PROMPT_TASK}\n\n${PROMPT_SCHEMA}\n\nINVENTORY\n${JSON.stringify(inventory)}`,
+					},
 				],
 			},
 		],
@@ -165,6 +186,49 @@ async function askModel(llm, route, inventory, signal) {
 		else if (chunk.type === 'finish') finish = chunk.reason;
 	}
 	return { text, finish };
+}
+
+/**
+ * Re-anchor the paths in one answer onto the project root.
+ *
+ * Each call covers one subfolder, so a model shown the inventory of `contracts`
+ * answers with `CEB_MAIN` — the name it was given — while the extractor resolves
+ * every path against the project root, where that folder is `contracts/CEB_MAIN`.
+ * Without this the main-contract certificates are searched for in a folder that does
+ * not exist, and a contracts-only project reports no contract price at all.
+ *
+ * The check is the filesystem's, not a guess: a path is re-anchored only when it
+ * exists under the subfolder and not at the root. An answer that already named the
+ * full path, or one naming something nowhere, is left exactly as it came.
+ */
+function reanchor(config, subfolder, folder) {
+	if (!subfolder || !config || !config.sources) return config;
+	const exists = (rel) => {
+		if (!rel) return false;
+		try {
+			return fs.existsSync(path.join(folder, rel));
+		} catch {
+			return false;
+		}
+	};
+	const fix = (rel) => {
+		const value = cleanRel(rel);
+		if (value === '' || exists(value)) return value;
+		const joined = subfolder + '/' + value;
+		return exists(joined) ? joined : value;
+	};
+	const sources = config.sources;
+	sources.defects = fix(sources.defects);
+	sources.paymentsRegister = fix(sources.paymentsRegister);
+	sources.mainContractDir = fix(sources.mainContractDir);
+	if (sources.latestCertificate) sources.latestCertificate.dir = fix(sources.latestCertificate.dir);
+	if (sources.docs) {
+		for (const key of Object.keys(sources.docs)) sources.docs[key] = fix(sources.docs[key]);
+	}
+	for (const key of ['letters', 'meetings']) {
+		for (const entry of config[key] || []) entry.dir = fix(entry.dir);
+	}
+	return config;
 }
 
 /** Keep only the paths the extractor can use, so a model typo cannot escape the folder. */
@@ -232,9 +296,15 @@ function tidy(raw, folder) {
 	// claim about the project, so it is a safe thing to fall back to; the model's
 	// answer wins whenever it gave one.
 	const base = String(folder || '').split(/[\\/]/).filter(Boolean).pop() || '';
-	const name = String(project.name || '').slice(0, 120) || base;
+	const named = String(project.name || '').slice(0, 120);
+	const name = named || base;
 	const mark = String(project.mark || '').toUpperCase().slice(0, 6) || initials(name) || 'EPC';
 	config.project = {
+		// Whether the caption is the model's or the folder's own name. A merge of
+		// ten subfolder answers has to prefer the one a model actually stated: the
+		// drawings folder cannot name the project, and taking its answer because it
+		// came first would caption a whole project `drawings`.
+		_fromFolder: named === '',
 		name,
 		short: String(project.short || '').slice(0, 60) || name.slice(0, 60),
 		mark,
@@ -368,6 +438,123 @@ function tidy(raw, folder) {
 }
 
 /**
+ * Fold several partial configurations into one.
+ *
+ * The folder is read one subject at a time, so each call answers about one survey:
+ * the contracts folder states the contract numbers and the prices, the payments
+ * folder states the register and the certificates, the letters folder states which
+ * series exist and which side each is. None of them alone describes the project,
+ * and all of them together do.
+ *
+ * The rules are the ones a person would use putting ten memos on a desk:
+ *
+ *   - a scalar is taken from the first answer that states it, because a later
+ *     answer that repeats a contract number has read the same document;
+ *   - an identified list (parties, contracts, letters, meetings) keeps every entry,
+ *     merging by id, so two folders naming the same contract do not produce two;
+ *   - a field only one answer can establish is taken from that answer, and a
+ *     caption the folder invented is replaced by one a model stated.
+ *
+ * Nothing is invented here: a value that appears in none of the answers stays
+ * absent, and the section it belonged to is reported blank.
+ */
+export { reanchor };
+
+export function mergeConfigs(configs) {
+	const live = (configs || []).filter((c) => c && typeof c === 'object');
+	if (live.length === 0) return null;
+	const merged = { project: {}, parties: [], contracts: [], sources: { sheets: {}, latestCertificate: {}, docs: {} }, letters: [], meetings: [] };
+
+	const project = {};
+	for (const key of ['name', 'short', 'mark', 'site', 'standpoint', 'currency']) {
+		for (const c of live) {
+			const value = c.project ? c.project[key] : '';
+			if (typeof value === 'string' && value.trim() !== '') { project[key] = value; break; }
+		}
+	}
+	// A caption the folder made up is the last resort: prefer any answer whose name a
+	// model actually stated, so reading `drawings` first cannot caption the project.
+	const named = live.filter((c) => c.project && c.project._fromFolder === false && c.project.name);
+	if (named.length > 0) {
+		project.name = named[0].project.name;
+		if (named[0].project.short) project.short = named[0].project.short;
+		if (named[0].project.mark) project.mark = named[0].project.mark;
+	}
+	const currencies = [];
+	const seenCurrency = new Set();
+	for (const c of live) {
+		for (const cur of (c.project && c.project.currencies) || []) {
+			if (!cur || !cur.code || seenCurrency.has(cur.code)) continue;
+			seenCurrency.add(cur.code);
+			currencies.push(cur);
+		}
+	}
+	// Exactly one primary: the first answer's choice stands, and everything else is a
+	// second slice. Two primaries would print the same figure twice on the money band.
+	if (currencies.length > 0) {
+		const primary = currencies.find((c) => c.primary) || currencies[0];
+		for (const cur of currencies) cur.primary = cur === primary;
+	}
+	project.currencies = currencies;
+	merged.project = project;
+
+	const byId = (list, key) => {
+		const out = new Map();
+		for (const item of list || []) {
+			if (!item || !item[key]) continue;
+			const id = String(item[key]);
+			const current = out.get(id);
+			if (!current) { out.set(id, Object.assign({}, item)); continue; }
+			// Later answers fill blanks and leave what is already known: the folder
+			// that stated a price is right about it, and a folder that only repeated
+			// the contract number has nothing to add.
+			for (const [k, v] of Object.entries(item)) {
+				if (k === key) continue;
+				const mine = current[k];
+				if (mine === undefined || mine === null || mine === '' || (Array.isArray(mine) && mine.length === 0)) current[k] = v;
+			}
+		}
+		return [...out.values()];
+	};
+	merged.parties = byId(live.flatMap((c) => c.parties || []), 'id');
+	merged.contracts = byId(live.flatMap((c) => c.contracts || []), 'id');
+
+	for (const c of live) {
+		const sources = c.sources || {};
+		for (const key of ['defects', 'paymentsRegister', 'mainContractDir']) {
+			if (!merged.sources[key] && sources[key]) merged.sources[key] = sources[key];
+		}
+		for (const key of ['ipc', 'employer', 'monthly']) {
+			const value = sources.sheets ? sources.sheets[key] : '';
+			if (!merged.sources.sheets[key] && value) merged.sources.sheets[key] = value;
+		}
+		for (const key of ['dir', 'file', 'sheet', 'itemsSheet']) {
+			const value = sources.latestCertificate ? sources.latestCertificate[key] : '';
+			if (!merged.sources.latestCertificate[key] && value) merged.sources.latestCertificate[key] = value;
+		}
+		for (const key of ['contracts', 'toc', 'materials', 'photos', 'videos', 'pdfLetters', 'drawings']) {
+			const value = sources.docs ? sources.docs[key] : '';
+			if (!merged.sources.docs[key] && value) merged.sources.docs[key] = value;
+		}
+	}
+
+	// Two folders can describe the same letter series under different keys. The
+	// directory is the identity, so it is what decides whether an entry is new.
+	const seenDir = new Set();
+	for (const c of live) {
+		for (const item of [...(c.letters || []), ...(c.meetings || [])]) {
+			if (!item || !item.dir) continue;
+			const bucket = (c.letters || []).includes(item) ? merged.letters : merged.meetings;
+			const key = bucket === merged.letters ? 'letter:' + item.dir : 'minute:' + item.dir;
+			if (seenDir.has(key)) continue;
+			seenDir.add(key);
+			bucket.push(item);
+		}
+	}
+	return merged;
+}
+
+/**
  * Ask the model to describe the folder.
  *
  * Returns `{ config, model, notes }` — `config` is null when the model answered
@@ -375,17 +562,23 @@ function tidy(raw, folder) {
  * so the page can report the failure instead of silently showing the empty result
  * the user was already looking at.
  */
-export async function analyzeFolder(ctx, folder, inventory) {
+export async function analyzeFolder(ctx, folder, inventory, options = {}) {
 	const llm = typeof ctx.get === 'function' ? ctx.get('llm') : null;
 	if (!llm || typeof llm.stream !== 'function') {
 		return { config: null, model: null, notes: ['the model is not available in this installation, so the folder was read without it'] };
 	}
-	let route = null;
-	try {
-		const defaults = typeof ctx.get === 'function' ? ctx.get('agentDefaultModel') : null;
-		if (defaults && typeof defaults.currentSelection === 'function') route = defaults.currentSelection();
-	} catch {
-		route = null;
+	// The route is the caller's choice when it made one: the picker in the strip
+	// lets a reader run the extraction on a model they picked, and a picker whose
+	// answer was ignored would be worse than no picker. The session's own model is
+	// the fallback, so the button still works when nothing was chosen.
+	let route = options.route && options.route.provider && options.route.model ? options.route : null;
+	if (!route) {
+		try {
+			const defaults = typeof ctx.get === 'function' ? ctx.get('agentDefaultModel') : null;
+			if (defaults && typeof defaults.currentSelection === 'function') route = defaults.currentSelection();
+		} catch {
+			route = null;
+		}
 	}
 	if (!route || !route.provider || !route.model) {
 		return { config: null, model: null, notes: ['no model is selected, so the folder was read without one'] };
@@ -395,7 +588,7 @@ export async function analyzeFolder(ctx, folder, inventory) {
 	const timer = setTimeout(() => controller.abort(), 240000);
 	let answer;
 	try {
-		answer = await askModel(llm, route, inventory, controller.signal);
+		answer = await askModel(llm, route, inventory, controller.signal, options.subfolder || '', options.index || 0, options.total || 0);
 	} catch (error) {
 		return {
 			config: null,

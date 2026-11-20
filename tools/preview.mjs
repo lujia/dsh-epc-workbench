@@ -199,16 +199,19 @@ const targets = only ? [only] : VIEWS
 // 'folder' renders the strip as it looks after a real folder was read, and
 // 'gaps' renders it with what that folder did not hold. Both are states a reader
 // meets on a second machine and neither is reachable from the bundled dataset.
+// 'blank' renders the state a real read leaves: the sections the folder did not
+// hold are empty rather than standing in from the demo, and the strip says which.
+const blankMode = flags.indexOf('blank') >= 0
 const folderMode = flags.indexOf('folder') >= 0
 const gapsMode = flags.indexOf('gaps') >= 0
-const notesOpen = gapsMode || flags.indexOf('notes') >= 0
+const notesOpen = gapsMode || blankMode || flags.indexOf('notes') >= 0
 // 'model' renders the strip after the layout was described by the running model,
 // which is the state a reader meets on a folder the deterministic reader cannot
 // recognise at all.
 const modelMode = flags.indexOf('model') >= 0
 
 function readSource() {
-  if (!folderMode && !gapsMode) return { active: null, build: null }
+  if (!folderMode && !gapsMode && !blankMode) return { active: null, build: null }
   const gaps = gapsMode
     ? ['no main-contract certificates were found',
        'retention for P02: no workbook with a retention sheet was found, so the retention tab is empty']
@@ -220,6 +223,7 @@ function readSource() {
       builtAt: '2026-11-15T06:31:00.000Z',
       notes: gaps,
       demo: gapsMode ? ['letters', 'defects', 'payments', 'retention', 'certificate', 'mainContract', 'docs', 'contracts', 'project'] : [],
+      blank: blankMode ? ['letters', 'defects', 'payments', 'retention', 'certificate', 'mainContract'] : [],
       found: ['payment register: IPCs/CYE. Interim Payment Records - 260929.xlsx (sheets ipc=Interim Payment to ADVE, employer=Interim Payment from CEB, monthly=Monthly Interim Payment Records)',
               'currencies named by the certificate header: USD, LKR, JPY',
               'main contract number: CEB/DGM/GP/2019/01'],
@@ -278,7 +282,7 @@ html,body{margin:0;height:100%;background:var(--dsw-alias-bg-base);color:var(--d
 </style>
 <style>${CSS}</style></head>
 <body><div id="host">${html}</div><div class="pv-label">${theme}/${view}</div></body></html>`
-  const mode = modelMode ? '.model' : (gapsMode ? '.gaps' : (folderMode ? '.folder' : ''))
+  const mode = modelMode ? '.model' : (gapsMode ? '.gaps' : (blankMode ? '.blank' : (folderMode ? '.folder' : '')))
   const file = join(OUT, view + (view === 'commercial' && (tabFlag || subScope) ? '.' + (subScope ? 'sub' : 'main') + '.' + (tabFlag || (subScope ? 'ipcs' : 'ipas')) : (subScope ? '.sub' : '')) + mode + (LANG === 'zh' ? '.zh' : '') + (theme === 'light' ? '.light' : '') + '.html')
   await writeFile(file, page, 'utf8')
   console.log('wrote ' + file + ' (' + page.length + ' B)')

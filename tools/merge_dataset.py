@@ -307,15 +307,25 @@ def stated_contract(contract):
     return False
 
 
-def merge(folder, demo):
-    """One payload: every section the folder filled, the rest from the demo."""
+def merge(folder, demo, fill=True):
+    """One payload: every section the folder filled, and what it did not.
+
+    ``fill`` decides what happens to a section the folder never provided. The demo
+    stands in only when the workbench is *demonstrating itself*, which is the first
+    run and the Use demo data button. A folder that was actually read does not have
+    the demo spliced into it: the reader asked what this project holds, and a
+    section the folder does not carry is a blank section, not somebody else's
+    records. A blank page also says which part is missing and can be filled in
+    later, whereas a page carrying another project's defects cannot be told apart
+    from one that was read correctly.
+    """
     out = dict(folder)
     have = sections_of(folder)
     origins = {}
     for name, present in have.items():
         if present:
             origins[name] = "folder"
-        elif demo is not None and name in demo:
+        elif fill and demo is not None and name in demo:
             out[name] = demo.get(name)
             origins[name] = "demo"
         else:
@@ -349,10 +359,10 @@ def merge(folder, demo):
     # came from the demo: a contracts-only folder has a register of its own and no
     # letter series at all, and the demo's nine hundred and ninety letters would
     # then appear on the page with no label and no scope to belong to.
-    if demo is not None:
+    if demo is not None and (fill or not have.get("letters")):
         out["taxonomy"] = merge_taxonomy(folder, demo, origins, out.get("contracts") or [])
 
-    if not have.get("contracts") and demo is not None:
+    if not have.get("contracts") and fill and demo is not None:
         out["contracts"] = demo.get("contracts") or []
         if not (out.get("currencies") or []):
             out["currencies"] = demo.get("currencies") or []
@@ -363,7 +373,7 @@ def merge(folder, demo):
         out["project"] = project
         origins["project"] = "demo"
 
-    merged_folders = merge_folders(folder, demo, origins)
+    merged_folders = merge_folders(folder, demo if fill else None, origins)
     if merged_folders is not None:
         out["folders"] = merged_folders
 
@@ -417,16 +427,20 @@ def rebuild_index(folder_index, demo_index, data):
 
 
 def main(argv):
-    if len(argv) != 4:
-        sys.stderr.write("usage: merge_dataset.py <folder workbench.json> <demo workbench.json> <out dir>\n")
+    if len(argv) < 4:
+        sys.stderr.write("usage: merge_dataset.py <folder workbench.json> <demo workbench.json> <out dir> [--blank]\n")
         return 2
     folder_path, demo_path, out_dir = argv[1], argv[2], argv[3]
+    # --blank keeps a section the folder did not provide empty instead of standing
+    # the demo in for it. That is what a real read does: a blank section is a fact
+    # about this folder, and it can be filled in later by adding the records.
+    fill = "--blank" not in argv[4:]
     folder = _load(folder_path)
     if folder is None:
         sys.stderr.write("the folder dataset could not be read: %s\n" % folder_path)
         return 2
     demo = _load(demo_path)
-    merged = merge(folder, demo)
+    merged = merge(folder, demo, fill=fill)
     os.makedirs(out_dir, exist_ok=True)
     data_path = os.path.join(out_dir, "workbench.json")
     with io.open(data_path, "w", encoding="utf-8", newline="\n") as fh:
@@ -441,6 +455,7 @@ def main(argv):
 
     print("merged sections: %s" % (", ".join("%s=%s" % (k, v) for k, v in merged["origins"].items())))
     print("demo sections: %s" % (", ".join(merged["demoSections"]) or "none"))
+    print("blank sections: %s" % (", ".join(k for k, v in merged["origins"].items() if v == "empty") or "none"))
     print("WROTE %s %d" % (data_path, os.path.getsize(data_path)))
     print("WROTE %s %d %d records" % (index_path, os.path.getsize(index_path), len(rows)))
     return 0

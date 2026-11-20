@@ -216,6 +216,29 @@ def _workbook(path, folder):
     return out
 
 
+def subfolders(folder):
+    """The immediate subfolders of a project folder, which is what gets read one by one.
+
+    A project is organised by subject — contracts, defects, drawings, letters — and
+    the model is asked about one of them at a time. Asking about all ten at once
+    means a single answer covering a thousand files, and the answer degrades exactly
+    where the folder is largest. Naming them here also keeps the split visible to the
+    caller, which reports progress folder by folder.
+    """
+    out = []
+    try:
+        names = sorted(os.listdir(folder))
+    except OSError:
+        return out
+    for name in names:
+        if name.startswith(".") or name.startswith("~$"):
+            continue
+        full = os.path.join(folder, name)
+        if os.path.isdir(full):
+            out.append(name)
+    return out
+
+
 def inventory(folder):
     folder = os.path.abspath(folder)
     files, dirs, truncated = _walk(folder)
@@ -313,6 +336,8 @@ def inventory(folder):
 
     return {
         "folder": folder,
+        "name": os.path.basename(folder),
+        "subfolders": subfolders(folder),
         "truncated": truncated,
         "counts": {
             "files": len(files),
@@ -352,7 +377,7 @@ def _shrink(doc, limit):
 
 def main(argv):
     if len(argv) < 3:
-        sys.stderr.write("usage: inventory.py <folder> <out.json> [--max-bytes N]\n")
+        sys.stderr.write("usage: inventory.py <folder> <out.json> [--max-bytes N] [--list]\n")
         return 2
     folder = os.path.abspath(argv[1])
     out = os.path.abspath(argv[2])
@@ -365,6 +390,13 @@ def main(argv):
     if not os.path.isdir(folder):
         sys.stderr.write("not a directory: %s\n" % folder)
         return 2
+    if "--list" in argv:
+        # One line per immediate subfolder. The caller reads the folder one subject
+        # at a time and needs the list before it starts, without paying for a full
+        # inventory of a tree it is about to walk itself.
+        for name in subfolders(folder):
+            print(name)
+        return 0
     doc = _shrink(inventory(folder), limit)
     with open(out, "w", encoding="utf-8") as fh:
         json.dump(doc, fh, indent=1, ensure_ascii=False)
