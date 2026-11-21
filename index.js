@@ -377,7 +377,7 @@ async function mergeWithDemo(python, dataDir, blank = false) {
 		await mkdir(dataDir, { recursive: true });
 		await writeFile(
 			folder.data,
-			JSON.stringify({ generated: new Date().toISOString(), project: {}, currencies: [], contracts: [], letters: {}, meetings: {}, defects: {}, payments: {}, retention: {}, certificate: {}, mainContract: null, docs: {}, defectRows: [], warnings: [] }),
+			JSON.stringify({ generated: new Date().toISOString(), project: {}, currencies: [], contracts: [], letters: {}, meetings: {}, defects: {}, payments: {}, retention: {}, certificate: {}, mainContract: null, docs: {}, folders: {}, defectRows: [], warnings: [] }),
 			'utf8',
 		);
 		if (!(await exists(folder.index))) await writeFile(folder.index, '[]', 'utf8');

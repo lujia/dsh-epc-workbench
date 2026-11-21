@@ -163,6 +163,95 @@ function contractList(data) {
 			return { letters: sum, certs: reg.records || 0 };
 		}
 
+		/* Section accessors that always answer with the shape the views read.
+		   Every view reads these sections by name — `docs.media.photos`,
+		   `payments.lag.avg` — and an absent key throws during render, which
+		   unmounts the whole panel: the reader gets a white page instead of a page
+		   that says the project holds no documents yet. A folder really can lack a
+		   section (a corpus of drawings and letters has no payment certificates), so
+		   the accessor is the place to answer that, not each of the forty reads. */
+		function docsOf(data) {
+			var d = (data && data.docs) || {};
+			var media = d.media || {};
+			return {
+				contracts: d.contracts || [],
+				toc: d.toc || [],
+				materials: d.materials || [],
+				drawings: d.drawings || [],
+				drawingFiles: d.drawingFiles || 0,
+				media: {
+					photos: media.photos || 0,
+					videos: media.videos || 0,
+					pdfLetters: media.pdfLetters || 0
+				}
+			};
+		}
+
+		function paymentsOf(data) {
+			var p = (data && data.payments) || {};
+			var lag = p.lag || {};
+			return {
+				ipcs: p.ipcs || [],
+				employer: p.employer || [],
+				paidByMonth: p.paidByMonth || {},
+				invoicedByMonth: p.invoicedByMonth || {},
+				receivedByMonth: p.receivedByMonth || {},
+				employerInvoicedByMonth: p.employerInvoicedByMonth || {},
+				monthly: p.monthly || [],
+				fx: p.fx || [],
+				lag: {
+					avg: lag.avg != null ? lag.avg : null,
+					median: lag.median != null ? lag.median : null,
+					max: lag.max != null ? lag.max : null,
+					n: lag.n || 0
+				},
+				totals: p.totals || {}
+			};
+		}
+
+		function lettersOf(data) {
+			var l = (data && data.letters) || {};
+			return {
+				total: l.total || 0,
+				dated: l.dated || 0,
+				bySeries: l.bySeries || {},
+				byCode: l.byCode || {},
+				byPkg: l.byPkg || {},
+				byMonth: l.byMonth || {},
+				topSubjects: l.topSubjects || [],
+				recent: l.recent || []
+			};
+		}
+
+		function meetingsOf(data) {
+			var m = (data && data.meetings) || {};
+			return {
+				total: m.total || 0,
+				bySeries: m.bySeries || {},
+				byMonth: m.byMonth || {},
+				recent: m.recent || [],
+				all: m.all || [],
+				undated: m.undated || 0
+			};
+		}
+
+		function defectsOf(data) {
+			var d = (data && data.defects) || {};
+			return {
+				total: d.total || 0,
+				byStatus: d.byStatus || {},
+				byDiscipline: d.byDiscipline || {},
+				byGrade: d.byGrade || {},
+				byPriority: d.byPriority || {},
+				byLocation: d.byLocation || {},
+				byMonth: d.byMonth || {},
+				overdue: d.overdue || [],
+				overdueCount: d.overdueCount || 0,
+				openCount: d.openCount || 0,
+				defectRows: d.defectRows || (data && data.defectRows) || []
+			};
+		}
+
 		/* Two figures every main-contract progress reading needs, kept in one place
 		   so the Overview band and the Commercial band cannot disagree:
 		   - the cap is the revised contract price, because price adjustment is

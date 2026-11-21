@@ -1,6 +1,6 @@
 {
   "name": "dsh-epc-workbench",
-  "version": "1.10.2",
+  "version": "1.10.3",
   "type": "module",
   "description": "EPC project management workbench: progress, payments, correspondence, meetings, defects and documents, read against any of a project's contracts.",
   "license": "MIT",

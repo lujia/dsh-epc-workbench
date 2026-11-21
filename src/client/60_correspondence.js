@@ -34,7 +34,7 @@
 		function ViewCorrespondence(props) {
 			var data = props.data;
 			var index = useIndex();
-			var letters = data.letters;
+			var letters = lettersOf(data);
 
 			var scope = props.scope != null && props.scope !== '' ? resolveScope(data, props.scope) : defaultScope(data);
 			/* Correspondence follows the contract rather than the whole register:
@@ -204,7 +204,7 @@
 		/* ============================ meetings ============================ */
 		function ViewMeetings(props) {
 			var data = props.data;
-			var meetings = data.meetings;
+			var meetings = meetingsOf(data);
 			var scope = props.scope != null && props.scope !== '' ? resolveScope(data, props.scope) : defaultScope(data);
 			/* Which minute books belong to a contract is configuration. A project
 			   that keeps one book per package simply returns one key here. */

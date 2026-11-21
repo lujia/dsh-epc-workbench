@@ -2163,6 +2163,39 @@ def build_taxonomy():
     }
 
 
+def write_json(path, payload):
+    """Write a payload a browser can parse, whatever the filesystem handed us.
+
+    A filename that is not valid UTF-8 is ordinary on Linux — an archive unzipped
+    with GBK names produces exactly that — and python surfaces such a name with
+    surrogate escapes. ``json.dump`` then raises ``UnicodeEncodeError: surrogates not
+    allowed`` and the whole build dies on one bad file name. Writing with
+    ``errors="surrogatepass"`` would only move the problem: those bytes are not
+    valid UTF-8, so the browser rejects the whole dataset. The name is made safe
+    instead — the surrogates become replacement characters — and the file is still
+    listed.
+    """
+    try:
+        text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+        text.encode("utf-8")
+    except (UnicodeEncodeError, ValueError):
+        text = json.dumps(_scrub(payload), ensure_ascii=False, separators=(",", ":"),
+                          allow_nan=False)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
+
+
+def _scrub(value):
+    """The same payload with every undecodable name replaced, not dropped."""
+    if isinstance(value, str):
+        return value.encode("utf-8", "replace").decode("utf-8")
+    if isinstance(value, list):
+        return [_scrub(item) for item in value]
+    if isinstance(value, dict):
+        return {_scrub(k): _scrub(v) for k, v in value.items()}
+    return value
+
+
 def main(argv=None):
     use_config(epc_config.load(epc_config.locate(argv)))
     os.makedirs(OUT, exist_ok=True)
@@ -2240,8 +2273,7 @@ def main(argv=None):
     }
 
     p = os.path.join(OUT, "workbench.json")
-    with open(p, "w", encoding="utf-8") as fh:
-        json.dump(data, fh, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    write_json(p, data)
     print("WROTE", p, os.path.getsize(p))
 
     index = []
@@ -2267,8 +2299,7 @@ def main(argv=None):
                           " (amended)" if s["amended"] else "")) if ordinal else s["name"],
                       mc_id, os.path.join(MAIN_DIR, s["name"])])
     pi = os.path.join(OUT, "index.json")
-    with open(pi, "w", encoding="utf-8") as fh:
-        json.dump(index, fh, ensure_ascii=False, separators=(",", ":"))
+    write_json(pi, index)
     print("WROTE", pi, os.path.getsize(pi), len(index), "records")
 
     if WARNINGS:

@@ -23,7 +23,9 @@
 		}
 
 		function ipcRows(data) {
-			return (data.payments.ipcs || []).filter(function (r) { return r && r.amt != null; });
+			/* Through the accessor: a folder with no payment register has no
+			   certificates, and that is an empty table rather than a white page. */
+			return paymentsOf(data).ipcs.filter(function (r) { return r && r.amt != null; });
 		}
 
 		/* The register ends with four summary lines ('Balance', 'Variation',
@@ -180,7 +182,7 @@
 				return h('div', null, head, viewCommercialMain(props, mc, tab, setTab));
 			}
 
-			var payments = data.payments;
+			var payments = paymentsOf(data);
 			var totals = payments.totals;
 
 			var ret = lastRetention(data, pkg);

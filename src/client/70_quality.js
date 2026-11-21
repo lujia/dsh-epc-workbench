@@ -1,7 +1,7 @@
 		/* ============================ quality & defects ============================ */
 		function ViewQuality(props) {
 			var data = props.data;
-			var defects = data.defects;
+			var defects = defectsOf(data);
 			var scope = props.scope != null && props.scope !== '' ? resolveScope(data, props.scope) : defaultScope(data);
 			var [query, setQuery] = useState('');
 			var [grade, setGrade] = useState('all');
@@ -148,7 +148,10 @@
 
 		function ViewDocuments(props) {
 			var data = props.data;
-			var docs = data.docs;
+			/* Read by name throughout, so it is defaulted rather than trusted: a
+			   folder that carries no documents section still has a documents page,
+			   and the page is how a reader learns there are none. */
+			var docs = docsOf(data);
 			var scope = props.scope != null && props.scope !== '' ? resolveScope(data, props.scope) : defaultScope(data);
 
 			var issued = (docs.toc || []).filter(function (d) { return d.state === 'issued'; });

@@ -646,11 +646,18 @@
 					return t('src.section.' + k);
 				});
 			}, [source]);
+			/* The accessors, not the raw sections: a folder read that held no
+			   letters produces no letters key at all, and a badge is not worth a
+			   throw that unmounts the whole rail. */
+			var navLetters = lettersOf(data);
+			var navMeetings = meetingsOf(data);
+			var navDefects = defectsOf(data);
+			var navDocs = docsOf(data);
 			var counts = data ? {
-				correspondence: data.letters.total,
-				meetings: data.meetings.total,
-				quality: data.defects.openCount,
-				documents: data.docs.contracts.length + data.docs.toc.length + data.docs.materials.length
+				correspondence: navLetters.total,
+				meetings: navMeetings.total,
+				quality: navDefects.openCount,
+				documents: navDocs.contracts.length + navDocs.toc.length + navDocs.materials.length
 			} : {};
 			/* A folder page is named after the folder, so its badge is the folder's
 			   own file count — the one number a reader wants before opening it. A
@@ -872,8 +879,46 @@
 				T_NOW = function (key) { return (EN[key] != null ? EN[key] : key); };
 			}
 
+			/* A render that throws unmounts the whole tree, and the host has no error
+			   boundary of its own: the reader sees the sidebar beside a white panel
+			   with nothing to act on. This is the boundary for that. It prints the
+			   message the browser already logged, so a report of "the page went
+			   blank" carries the line that broke. */
+			function boundaryClass() {
+				if (!React.Component || !React.Component.prototype) return null;
+				return class EpcBoundary extends React.Component {
+					constructor(props) {
+						super(props);
+						this.state = { error: null };
+					}
+
+					static getDerivedStateFromError(error) {
+						return { error: error };
+					}
+
+					componentDidCatch(error, info) {
+						console.error('[epc-workbench] the page threw while rendering', error, info);
+					}
+
+					render() {
+						var error = this.state.error;
+						if (!error) return this.props.children;
+						return h('div', { className: 'epc-err' },
+							t('app.crash'),
+							h('br'),
+							h('code', null, String(error && error.message ? error.message : error)),
+							h('div', { className: 'epc-notes-hint' }, t('app.crash.hint')));
+					}
+				};
+			}
+
+			var Boundary = boundaryClass();
+
 			var Page = function (props) {
-				return h(Workbench, Object.assign({}, props, { ctx: ctx }));
+				var page = h(Workbench, Object.assign({}, props, { ctx: ctx }));
+				/* Without a class-capable React there is no boundary to install, so
+				   the page is rendered bare rather than refusing to render. */
+				return Boundary === null ? page : h(Boundary, null, page);
 			};
 
 			function registerRow() {

@@ -16,10 +16,13 @@
 		function ViewOverview(props) {
 			var data = props.data;
 			var project = data.project;
-			var letters = data.letters;
-			var payments = data.payments;
-			var defects = data.defects;
-			var meetings = data.meetings;
+			/* Read through the accessors: a section the folder does not hold is not an
+			   empty section, it is an absent key, and `letters.byMonth` on undefined
+			   throws during render and takes the whole panel with it. */
+			var letters = lettersOf(data);
+			var payments = paymentsOf(data);
+			var defects = defectsOf(data);
+			var meetings = meetingsOf(data);
 			/* A read of a folder without subcontract certificates merges no
 			   certificate section at all, so this can be null rather than an empty
 			   object. The card below is only rendered when there is something to put
@@ -28,7 +31,9 @@
 			   because one card had nothing to say. */
 			var cert = data.certificate;
 			var certSummary = cert && cert.summary && (isNum(cert.summary.cumulative) || isNum(cert.summary.current)) ? cert.summary : null;
-			var docs = data.docs;
+			/* Defaulted, not trusted: a folder with no documents section still has a
+			   milestone card, and the card is how a reader learns there are none. */
+			var docs = docsOf(data);
 			var scope = props.scope != null && props.scope !== '' ? resolveScope(data, props.scope) : defaultScope(data);
 			var issuedCount = (docs.toc || []).filter(function (d) { return d.state === 'issued'; }).length;
 			var draftCount = (docs.toc || []).filter(function (d) { return d.state !== 'issued'; }).length;

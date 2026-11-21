@@ -36,6 +36,48 @@ SECTION_KINDS = {
 }
 
 
+# The shape of a section the folder did not provide. A section that is merely absent
+# is not blank, it is missing: the page reads `docs.media.photos` and throws on
+# undefined, and a throw during render unmounts the whole panel — the reader sees a
+# white page instead of "this project has no photographs". So an empty section is
+# written out with its real shape and no figures in it, which is what the interface
+# already knows how to draw.
+EMPTY_SHAPE = {
+    "letters": {"total": 0, "dated": 0, "bySeries": {}, "byCode": {}, "byPkg": {},
+                "byMonth": {}, "topSubjects": [], "recent": []},
+    "meetings": {"total": 0, "bySeries": {}, "byMonth": {}, "recent": [], "all": [],
+                 "undated": 0},
+    "defects": {"total": 0, "byStatus": {}, "byDiscipline": {}, "byGrade": {},
+                "byPriority": {}, "byLocation": {}, "byMonth": {}, "overdue": [],
+                "overdueCount": 0, "openCount": 0},
+    "payments": {"ipcs": [], "employer": [], "paidByMonth": {}, "invoicedByMonth": {},
+                 "receivedByMonth": {}, "employerInvoicedByMonth": {}, "monthly": [],
+                 "lag": {"avg": None, "median": None, "n": 0, "max": None}, "fx": [],
+                 "totals": {"certified": None, "paid": None, "employerInvoiced": None,
+                            "employerReceived": None, "unpaidCount": 0,
+                            "unpaidAmount": None}},
+    "certificate": {"no": None, "period": None, "date": None, "items": [],
+                    "summary": {}},
+    "docs": {"contracts": [], "toc": [], "materials": [],
+             "media": {"photos": 0, "videos": 0, "pdfLetters": 0},
+             "drawings": [], "drawingFiles": 0},
+    # The main-contract section is read to three levels: totals.count for the
+    # register, contract.lkr for the price, latest for the closing statement. A
+    # project with a subcontract and no employer certificate still has all three
+    # questions asked of it.
+    "mainContract": {"folder": None, "files": 0, "parsed": 0, "pdfOnly": [],
+                     "missing": [], "ipas": [], "ledger": [], "byPeriod": {},
+                     "latest": None, "scans": [],
+                     "contract": {"no": None, "lkr": None, "usd": None,
+                                  "revisedLkr": None, "originalLkr": None,
+                                  "originalUsd": None, "advancePct": None,
+                                  "retentionPct": None, "amounts": [],
+                                  "amountsOrig": []},
+                     "totals": {"certifiedUsd": None, "certifiedLkr": None,
+                                "count": 0, "lastIpa": None}},
+}
+
+
 def _load(path):
     try:
         with io.open(path, encoding="utf-8") as fh:
@@ -329,11 +371,16 @@ def merge(folder, demo, fill=True):
             out[name] = demo.get(name)
             origins[name] = "demo"
         else:
+            # Blank, but present: the page reads these fields by name, and a key
+            # that is missing is a crash rather than an empty card.
+            out[name] = EMPTY_SHAPE.get(name, {})
             origins[name] = "empty"
 
     # The row list the tables read from is part of the defect section.
     if origins.get("defects") == "demo" and demo is not None:
         out["defectRows"] = demo.get("defectRows") or []
+    elif origins.get("defects") == "empty":
+        out["defectRows"] = []
 
     # The main-contract section is two things: the price the contract was let at,
     # and the certificates measured against it. A folder of contract documents

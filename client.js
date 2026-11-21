@@ -617,6 +617,8 @@ window.__ModuleLoader__.load({
 			'app.loading': 'Loading project data…',
 			'app.error': 'Could not load the project dataset.',
 			'app.retry': 'Retry',
+			'app.crash': 'This page stopped while drawing itself.',
+			'app.crash.hint': 'The project data is fine — one of the panels failed to render. Reload the page; if it happens again, the message above names the field that was missing.',
 			'cluster.project': 'Project',
 			'cluster.delivery': 'Delivery',
 			'cluster.records': 'Records',
@@ -1039,6 +1041,8 @@ window.__ModuleLoader__.load({
 			'app.loading': '正在加载项目数据…',
 			'app.error': '无法加载项目数据集。',
 			'app.retry': '重试',
+			'app.crash': '页面在渲染时中断。',
+			'app.crash.hint': '项目数据本身没有问题——是某个面板渲染失败。请刷新页面；若仍出现，上方的信息会指出缺少的字段。',
 			'cluster.project': '项目',
 			'cluster.delivery': '履约',
 			'cluster.records': '档案',
@@ -1632,6 +1636,95 @@ function contractList(data) {
 			return { letters: sum, certs: reg.records || 0 };
 		}
 
+		/* Section accessors that always answer with the shape the views read.
+		   Every view reads these sections by name — `docs.media.photos`,
+		   `payments.lag.avg` — and an absent key throws during render, which
+		   unmounts the whole panel: the reader gets a white page instead of a page
+		   that says the project holds no documents yet. A folder really can lack a
+		   section (a corpus of drawings and letters has no payment certificates), so
+		   the accessor is the place to answer that, not each of the forty reads. */
+		function docsOf(data) {
+			var d = (data && data.docs) || {};
+			var media = d.media || {};
+			return {
+				contracts: d.contracts || [],
+				toc: d.toc || [],
+				materials: d.materials || [],
+				drawings: d.drawings || [],
+				drawingFiles: d.drawingFiles || 0,
+				media: {
+					photos: media.photos || 0,
+					videos: media.videos || 0,
+					pdfLetters: media.pdfLetters || 0
+				}
+			};
+		}
+
+		function paymentsOf(data) {
+			var p = (data && data.payments) || {};
+			var lag = p.lag || {};
+			return {
+				ipcs: p.ipcs || [],
+				employer: p.employer || [],
+				paidByMonth: p.paidByMonth || {},
+				invoicedByMonth: p.invoicedByMonth || {},
+				receivedByMonth: p.receivedByMonth || {},
+				employerInvoicedByMonth: p.employerInvoicedByMonth || {},
+				monthly: p.monthly || [],
+				fx: p.fx || [],
+				lag: {
+					avg: lag.avg != null ? lag.avg : null,
+					median: lag.median != null ? lag.median : null,
+					max: lag.max != null ? lag.max : null,
+					n: lag.n || 0
+				},
+				totals: p.totals || {}
+			};
+		}
+
+		function lettersOf(data) {
+			var l = (data && data.letters) || {};
+			return {
+				total: l.total || 0,
+				dated: l.dated || 0,
+				bySeries: l.bySeries || {},
+				byCode: l.byCode || {},
+				byPkg: l.byPkg || {},
+				byMonth: l.byMonth || {},
+				topSubjects: l.topSubjects || [],
+				recent: l.recent || []
+			};
+		}
+
+		function meetingsOf(data) {
+			var m = (data && data.meetings) || {};
+			return {
+				total: m.total || 0,
+				bySeries: m.bySeries || {},
+				byMonth: m.byMonth || {},
+				recent: m.recent || [],
+				all: m.all || [],
+				undated: m.undated || 0
+			};
+		}
+
+		function defectsOf(data) {
+			var d = (data && data.defects) || {};
+			return {
+				total: d.total || 0,
+				byStatus: d.byStatus || {},
+				byDiscipline: d.byDiscipline || {},
+				byGrade: d.byGrade || {},
+				byPriority: d.byPriority || {},
+				byLocation: d.byLocation || {},
+				byMonth: d.byMonth || {},
+				overdue: d.overdue || [],
+				overdueCount: d.overdueCount || 0,
+				openCount: d.openCount || 0,
+				defectRows: d.defectRows || (data && data.defectRows) || []
+			};
+		}
+
 		/* Two figures every main-contract progress reading needs, kept in one place
 		   so the Overview band and the Commercial band cannot disagree:
 		   - the cap is the revised contract price, because price adjustment is
@@ -1883,10 +1976,13 @@ function contractList(data) {
 		function ViewOverview(props) {
 			var data = props.data;
 			var project = data.project;
-			var letters = data.letters;
-			var payments = data.payments;
-			var defects = data.defects;
-			var meetings = data.meetings;
+			/* Read through the accessors: a section the folder does not hold is not an
+			   empty section, it is an absent key, and `letters.byMonth` on undefined
+			   throws during render and takes the whole panel with it. */
+			var letters = lettersOf(data);
+			var payments = paymentsOf(data);
+			var defects = defectsOf(data);
+			var meetings = meetingsOf(data);
 			/* A read of a folder without subcontract certificates merges no
 			   certificate section at all, so this can be null rather than an empty
 			   object. The card below is only rendered when there is something to put
@@ -1895,7 +1991,9 @@ function contractList(data) {
 			   because one card had nothing to say. */
 			var cert = data.certificate;
 			var certSummary = cert && cert.summary && (isNum(cert.summary.cumulative) || isNum(cert.summary.current)) ? cert.summary : null;
-			var docs = data.docs;
+			/* Defaulted, not trusted: a folder with no documents section still has a
+			   milestone card, and the card is how a reader learns there are none. */
+			var docs = docsOf(data);
 			var scope = props.scope != null && props.scope !== '' ? resolveScope(data, props.scope) : defaultScope(data);
 			var issuedCount = (docs.toc || []).filter(function (d) { return d.state === 'issued'; }).length;
 			var draftCount = (docs.toc || []).filter(function (d) { return d.state !== 'issued'; }).length;
@@ -2263,7 +2361,9 @@ function contractList(data) {
 		}
 
 		function ipcRows(data) {
-			return (data.payments.ipcs || []).filter(function (r) { return r && r.amt != null; });
+			/* Through the accessor: a folder with no payment register has no
+			   certificates, and that is an empty table rather than a white page. */
+			return paymentsOf(data).ipcs.filter(function (r) { return r && r.amt != null; });
 		}
 
 		/* The register ends with four summary lines ('Balance', 'Variation',
@@ -2420,7 +2520,7 @@ function contractList(data) {
 				return h('div', null, head, viewCommercialMain(props, mc, tab, setTab));
 			}
 
-			var payments = data.payments;
+			var payments = paymentsOf(data);
 			var totals = payments.totals;
 
 			var ret = lastRetention(data, pkg);
@@ -2855,7 +2955,7 @@ function contractList(data) {
 		function ViewCorrespondence(props) {
 			var data = props.data;
 			var index = useIndex();
-			var letters = data.letters;
+			var letters = lettersOf(data);
 
 			var scope = props.scope != null && props.scope !== '' ? resolveScope(data, props.scope) : defaultScope(data);
 			/* Correspondence follows the contract rather than the whole register:
@@ -3025,7 +3125,7 @@ function contractList(data) {
 		/* ============================ meetings ============================ */
 		function ViewMeetings(props) {
 			var data = props.data;
-			var meetings = data.meetings;
+			var meetings = meetingsOf(data);
 			var scope = props.scope != null && props.scope !== '' ? resolveScope(data, props.scope) : defaultScope(data);
 			/* Which minute books belong to a contract is configuration. A project
 			   that keeps one book per package simply returns one key here. */
@@ -3152,7 +3252,7 @@ function contractList(data) {
 		/* ============================ quality & defects ============================ */
 		function ViewQuality(props) {
 			var data = props.data;
-			var defects = data.defects;
+			var defects = defectsOf(data);
 			var scope = props.scope != null && props.scope !== '' ? resolveScope(data, props.scope) : defaultScope(data);
 			var [query, setQuery] = useState('');
 			var [grade, setGrade] = useState('all');
@@ -3299,7 +3399,10 @@ function contractList(data) {
 
 		function ViewDocuments(props) {
 			var data = props.data;
-			var docs = data.docs;
+			/* Read by name throughout, so it is defaulted rather than trusted: a
+			   folder that carries no documents section still has a documents page,
+			   and the page is how a reader learns there are none. */
+			var docs = docsOf(data);
 			var scope = props.scope != null && props.scope !== '' ? resolveScope(data, props.scope) : defaultScope(data);
 
 			var issued = (docs.toc || []).filter(function (d) { return d.state === 'issued'; });
@@ -4272,11 +4375,18 @@ function contractList(data) {
 					return t('src.section.' + k);
 				});
 			}, [source]);
+			/* The accessors, not the raw sections: a folder read that held no
+			   letters produces no letters key at all, and a badge is not worth a
+			   throw that unmounts the whole rail. */
+			var navLetters = lettersOf(data);
+			var navMeetings = meetingsOf(data);
+			var navDefects = defectsOf(data);
+			var navDocs = docsOf(data);
 			var counts = data ? {
-				correspondence: data.letters.total,
-				meetings: data.meetings.total,
-				quality: data.defects.openCount,
-				documents: data.docs.contracts.length + data.docs.toc.length + data.docs.materials.length
+				correspondence: navLetters.total,
+				meetings: navMeetings.total,
+				quality: navDefects.openCount,
+				documents: navDocs.contracts.length + navDocs.toc.length + navDocs.materials.length
 			} : {};
 			/* A folder page is named after the folder, so its badge is the folder's
 			   own file count — the one number a reader wants before opening it. A
@@ -4498,8 +4608,46 @@ function contractList(data) {
 				T_NOW = function (key) { return (EN[key] != null ? EN[key] : key); };
 			}
 
+			/* A render that throws unmounts the whole tree, and the host has no error
+			   boundary of its own: the reader sees the sidebar beside a white panel
+			   with nothing to act on. This is the boundary for that. It prints the
+			   message the browser already logged, so a report of "the page went
+			   blank" carries the line that broke. */
+			function boundaryClass() {
+				if (!React.Component || !React.Component.prototype) return null;
+				return class EpcBoundary extends React.Component {
+					constructor(props) {
+						super(props);
+						this.state = { error: null };
+					}
+
+					static getDerivedStateFromError(error) {
+						return { error: error };
+					}
+
+					componentDidCatch(error, info) {
+						console.error('[epc-workbench] the page threw while rendering', error, info);
+					}
+
+					render() {
+						var error = this.state.error;
+						if (!error) return this.props.children;
+						return h('div', { className: 'epc-err' },
+							t('app.crash'),
+							h('br'),
+							h('code', null, String(error && error.message ? error.message : error)),
+							h('div', { className: 'epc-notes-hint' }, t('app.crash.hint')));
+					}
+				};
+			}
+
+			var Boundary = boundaryClass();
+
 			var Page = function (props) {
-				return h(Workbench, Object.assign({}, props, { ctx: ctx }));
+				var page = h(Workbench, Object.assign({}, props, { ctx: ctx }));
+				/* Without a class-capable React there is no boundary to install, so
+				   the page is rendered bare rather than refusing to render. */
+				return Boundary === null ? page : h(Boundary, null, page);
 			};
 
 			function registerRow() {
