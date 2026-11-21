@@ -290,6 +290,27 @@
 		   than to whatever the session happens to be using. The list comes from the
 		   host, because the browser cannot see the model catalogue. A picker that
 		   cannot load still works: it offers the session's own model and says so. */
+
+		/* A model badge is not always a string. The host returns the plain ones as
+		   text and the richer ones as {text, tone} — 'Pro Only' in green, 'Free now'
+		   in amber — and React throws 'Objects are not valid as a React child' on the
+		   object form. That exception unmounts the whole tree, which is a blank page
+		   rather than a broken badge, so the badge is reduced to its text here and its
+		   tone becomes a class. */
+		function badgeText(badge) {
+			if (badge === null || badge === undefined) return '';
+			if (typeof badge === 'string') return badge.trim();
+			if (typeof badge === 'number') return String(badge);
+			if (typeof badge === 'object' && typeof badge.text === 'string') return badge.text.trim();
+			return '';
+		}
+
+		function badgeTone(badge) {
+			if (!badge || typeof badge !== 'object') return '';
+			var tone = String(badge.tone || '').trim().toLowerCase();
+			return tone === 'success' || tone === 'warning' || tone === 'danger' || tone === 'neutral' ? tone : '';
+		}
+
 		function ModelPicker(props) {
 			var groups = props.providers || [];
 			var [chosen, setChosen] = useState(props.current || null);
@@ -323,7 +344,7 @@
 										onClick: function () { setChosen({ provider: g.id, model: m.id }); }
 									},
 										h('span', { className: 'epc-models-n' }, m.name || m.id),
-										m.badge ? h('span', { className: 'epc-models-b' }, m.badge) : null,
+										badgeText(m.badge) ? h('span', { className: 'epc-models-b' + (badgeTone(m.badge) ? ' t-' + badgeTone(m.badge) : '') }, badgeText(m.badge)) : null,
 										m.description ? h('span', { className: 'epc-models-d' }, m.description) : null);
 								}));
 						}),

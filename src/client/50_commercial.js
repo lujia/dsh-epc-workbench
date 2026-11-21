@@ -237,18 +237,18 @@
 							tab === 'ipcs' ? t('sub.rows', { n: ipcs.length })
 								: tab === 'employer' ? t('sub.rows', { n: (payments.employer || []).length })
 									: tab === 'retention' ? t('sub.rows', { n: retentionRows(data, pkg).length })
-										: t('sub.rows', { n: (data.certificate.items || []).length }))),
+										: t('sub.rows', { n: ((data.certificate || {}).items || []).length }))),
 
 					tab === 'ipcs' ? ipcTable(ipcs) : null,
 					tab === 'employer' ? employerTable(payments.employer || []) : null,
 					tab === 'retention' ? retentionTable(retentionRows(data, pkg)) : null,
-					tab === 'boq' ? boqTable(data.certificate) : null,
+					tab === 'boq' ? (data.certificate ? boqTable(data.certificate) : h('div', { className: 'epc-note' }, t('co.boq.none'))) : null,
 
 					h('div', { className: 'epc-note' },
 						tab === 'ipcs' ? t('co.note.ipcs')
 							: tab === 'employer' ? t('co.note.employer')
 								: tab === 'retention' ? t('co.note.retention')
-									: t('co.note.boq', { no: data.certificate.no }))));
+									: t('co.note.boq', { no: (data.certificate || {}).no || t('co.boq.none.no') }))));
 		}
 
 		function ipcTable(rows) {

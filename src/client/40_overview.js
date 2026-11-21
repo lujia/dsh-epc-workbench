@@ -20,7 +20,14 @@
 			var payments = data.payments;
 			var defects = data.defects;
 			var meetings = data.meetings;
+			/* A read of a folder without subcontract certificates merges no
+			   certificate section at all, so this can be null rather than an empty
+			   object. The card below is only rendered when there is something to put
+			   in it: an unguarded `cert.no` here throws, and a throw inside a React
+			   render unmounts the whole page — the reader loses the workbench
+			   because one card had nothing to say. */
 			var cert = data.certificate;
+			var certSummary = cert && cert.summary && (isNum(cert.summary.cumulative) || isNum(cert.summary.current)) ? cert.summary : null;
 			var docs = data.docs;
 			var scope = props.scope != null && props.scope !== '' ? resolveScope(data, props.scope) : defaultScope(data);
 			var issuedCount = (docs.toc || []).filter(function (d) { return d.state === 'issued'; }).length;
@@ -223,25 +230,29 @@
 									h('dt', null, t('co.st.deductions')), h('dd', { className: 'epc-mono' }, moneyText(rowSlices(mcLatest, 'deductionsCum', data), 2)),
 									h('dt', null, t('co.st.due')), h('dd', { className: 'epc-mono', style: { fontWeight: 650, color: 'var(--epc-accent)' } }, moneyText(rowSlices(mcLatest, 'dueCum', data), 2)))))
 
-						: h(Card, {
+					: certSummary
+						? h(Card, {
 							title: t('ov.cert.title'),
-							note: t('ov.cert.note', { no: cert.no, period: shortDate(cert.period) }) + ' · ' + subScopeIds(data).join(' + ')
+							note: t('ov.cert.note', { no: cert.no || t('ov.cert.nonumber'), period: shortDate(cert.period) }) + ' · ' + subScopeIds(data).join(' + ')
 						},
 							h('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px' } },
 								h('div', null,
 									h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' } },
 										h('span', { style: { fontSize: '11.5px', color: 'var(--epc-muted)' } }, t('ov.cert.cumulative')),
-										h('span', { className: 'epc-mono', style: { fontSize: '15px', fontWeight: 650 } }, grouped(cert.summary.cumulative, 2))),
+										h('span', { className: 'epc-mono', style: { fontSize: '15px', fontWeight: 650 } }, grouped(certSummary.cumulative, 2))),
 									h(ProgressBar, { value: certShare || 0, title: pct(certCum, contractValue) }),
 									h('div', { style: { display: 'flex', justifyContent: 'space-between', marginTop: '5px', fontSize: '11px', color: 'var(--epc-dim)' } },
 										h('span', null, t('ov.cert.ofvalue', { p: pct(certCum, contractValue) })),
 										h('span', null, grouped(contractValue)))),
 								h('dl', { className: 'epc-kv' },
-									h('dt', null, t('ov.cert.previous')), h('dd', { className: 'epc-mono' }, grouped(cert.summary.previous, 2)),
-									h('dt', null, t('ov.cert.current')), h('dd', { className: 'epc-mono' }, grouped(cert.summary.current, 2)),
-									h('dt', null, t('ov.cert.advance')), h('dd', { className: 'epc-mono' }, grouped(cert.summary.advanceRecovery, 2)),
-									h('dt', null, t('ov.cert.retention')), h('dd', { className: 'epc-mono' }, grouped(cert.summary.retention, 2)),
-									h('dt', null, t('ov.cert.net')), h('dd', { className: 'epc-mono', style: { fontWeight: 650, color: 'var(--epc-accent)' } }, grouped(cert.summary.netCertified, 2))))),
+									h('dt', null, t('ov.cert.previous')), h('dd', { className: 'epc-mono' }, grouped(certSummary.previous, 2)),
+									h('dt', null, t('ov.cert.current')), h('dd', { className: 'epc-mono' }, grouped(certSummary.current, 2)),
+									h('dt', null, t('ov.cert.advance')), h('dd', { className: 'epc-mono' }, grouped(certSummary.advanceRecovery, 2)),
+									h('dt', null, t('ov.cert.retention')), h('dd', { className: 'epc-mono' }, grouped(certSummary.retention, 2)),
+									h('dt', null, t('ov.cert.net')), h('dd', { className: 'epc-mono', style: { fontWeight: 650, color: 'var(--epc-accent)' } }, grouped(certSummary.netCertified, 2)))))
+
+						: h(Card, { title: t('ov.cert.title'), note: t('ov.cert.none', { list: subScopeIds(data).join(' + ') }) },
+							h('div', { className: 'epc-note' }, t('ov.cert.none.hint'))),
 
 					h(Card, { title: t('ov.contract.title') },
 						h('div', { style: { display: 'flex', flexDirection: 'column' } },

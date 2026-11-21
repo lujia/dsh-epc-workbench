@@ -658,6 +658,9 @@ window.__ModuleLoader__.load({
 			'ov.kpi.meetings': 'Meeting minutes',
 			'ov.kpi.unpaid': 'Certified but unpaid',
 			'ov.cert.title': 'Latest interim payment certificate',
+			'ov.cert.nonumber': 'number not stated',
+			'ov.cert.none': 'No subcontract certificate in {list}',
+			'ov.cert.none.hint': 'This project folder holds no subcontract payment certificate. Add one and read the folder again.',
 			'ov.cert.note': 'IPC {no} · period {period}',
 			'ov.cert.previous': 'Certified up to previous',
 			'ov.cert.current': 'This certificate',
@@ -759,6 +762,8 @@ window.__ModuleLoader__.load({
 			'co.retention.title': 'Retention and advance recovery',
 			'co.retention.note': 'latest {n} certificates',
 			'co.boq.title': 'Bill of quantities progress',
+			'co.boq.none': 'This project folder holds no subcontract certificate, so there is no bill of quantities to show.',
+			'co.boq.none.no': 'no certificate',
 			'co.boq.note': 'IPC {no}',
 			'co.chart.paid': 'Paid to subcontractor',
 			'co.note.ipcs': 'Amounts in the currency of the selected package. Source: the interim payment register, subcontract sheet.',
@@ -1075,6 +1080,9 @@ window.__ModuleLoader__.load({
 			'ov.kpi.meetings': '会议纪要',
 			'ov.kpi.unpaid': '已计量未付款',
 			'ov.cert.title': '最新期中付款证书',
+			'ov.cert.nonumber': '未注明编号',
+			'ov.cert.none': '{list} 暂无分包付款证书',
+			'ov.cert.none.hint': '该文件夹中没有分包付款证书。补充记录后重新读取即可。',
 			'ov.cert.note': 'IPC {no} · 期间 {period}',
 			'ov.cert.previous': '前期累计计量',
 			'ov.cert.current': '本期计量',
@@ -1176,6 +1184,8 @@ window.__ModuleLoader__.load({
 			'co.retention.title': '保留金与预付款回收',
 			'co.retention.note': '最近 {n} 期证书',
 			'co.boq.title': '工程量清单完成情况',
+			'co.boq.none': '该文件夹中没有分包付款证书，因此没有可显示的工程量清单。',
+			'co.boq.none.no': '暂无证书',
 			'co.boq.note': 'IPC {no}',
 			'co.chart.paid': '支付分包商',
 			'co.note.ipcs': '金额单位为该分包合同币种。数据源：期中付款记录中的分包工作表。',
@@ -1877,7 +1887,14 @@ function contractList(data) {
 			var payments = data.payments;
 			var defects = data.defects;
 			var meetings = data.meetings;
+			/* A read of a folder without subcontract certificates merges no
+			   certificate section at all, so this can be null rather than an empty
+			   object. The card below is only rendered when there is something to put
+			   in it: an unguarded `cert.no` here throws, and a throw inside a React
+			   render unmounts the whole page — the reader loses the workbench
+			   because one card had nothing to say. */
 			var cert = data.certificate;
+			var certSummary = cert && cert.summary && (isNum(cert.summary.cumulative) || isNum(cert.summary.current)) ? cert.summary : null;
 			var docs = data.docs;
 			var scope = props.scope != null && props.scope !== '' ? resolveScope(data, props.scope) : defaultScope(data);
 			var issuedCount = (docs.toc || []).filter(function (d) { return d.state === 'issued'; }).length;
@@ -2080,25 +2097,29 @@ function contractList(data) {
 									h('dt', null, t('co.st.deductions')), h('dd', { className: 'epc-mono' }, moneyText(rowSlices(mcLatest, 'deductionsCum', data), 2)),
 									h('dt', null, t('co.st.due')), h('dd', { className: 'epc-mono', style: { fontWeight: 650, color: 'var(--epc-accent)' } }, moneyText(rowSlices(mcLatest, 'dueCum', data), 2)))))
 
-						: h(Card, {
+					: certSummary
+						? h(Card, {
 							title: t('ov.cert.title'),
-							note: t('ov.cert.note', { no: cert.no, period: shortDate(cert.period) }) + ' · ' + subScopeIds(data).join(' + ')
+							note: t('ov.cert.note', { no: cert.no || t('ov.cert.nonumber'), period: shortDate(cert.period) }) + ' · ' + subScopeIds(data).join(' + ')
 						},
 							h('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px' } },
 								h('div', null,
 									h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' } },
 										h('span', { style: { fontSize: '11.5px', color: 'var(--epc-muted)' } }, t('ov.cert.cumulative')),
-										h('span', { className: 'epc-mono', style: { fontSize: '15px', fontWeight: 650 } }, grouped(cert.summary.cumulative, 2))),
+										h('span', { className: 'epc-mono', style: { fontSize: '15px', fontWeight: 650 } }, grouped(certSummary.cumulative, 2))),
 									h(ProgressBar, { value: certShare || 0, title: pct(certCum, contractValue) }),
 									h('div', { style: { display: 'flex', justifyContent: 'space-between', marginTop: '5px', fontSize: '11px', color: 'var(--epc-dim)' } },
 										h('span', null, t('ov.cert.ofvalue', { p: pct(certCum, contractValue) })),
 										h('span', null, grouped(contractValue)))),
 								h('dl', { className: 'epc-kv' },
-									h('dt', null, t('ov.cert.previous')), h('dd', { className: 'epc-mono' }, grouped(cert.summary.previous, 2)),
-									h('dt', null, t('ov.cert.current')), h('dd', { className: 'epc-mono' }, grouped(cert.summary.current, 2)),
-									h('dt', null, t('ov.cert.advance')), h('dd', { className: 'epc-mono' }, grouped(cert.summary.advanceRecovery, 2)),
-									h('dt', null, t('ov.cert.retention')), h('dd', { className: 'epc-mono' }, grouped(cert.summary.retention, 2)),
-									h('dt', null, t('ov.cert.net')), h('dd', { className: 'epc-mono', style: { fontWeight: 650, color: 'var(--epc-accent)' } }, grouped(cert.summary.netCertified, 2))))),
+									h('dt', null, t('ov.cert.previous')), h('dd', { className: 'epc-mono' }, grouped(certSummary.previous, 2)),
+									h('dt', null, t('ov.cert.current')), h('dd', { className: 'epc-mono' }, grouped(certSummary.current, 2)),
+									h('dt', null, t('ov.cert.advance')), h('dd', { className: 'epc-mono' }, grouped(certSummary.advanceRecovery, 2)),
+									h('dt', null, t('ov.cert.retention')), h('dd', { className: 'epc-mono' }, grouped(certSummary.retention, 2)),
+									h('dt', null, t('ov.cert.net')), h('dd', { className: 'epc-mono', style: { fontWeight: 650, color: 'var(--epc-accent)' } }, grouped(certSummary.netCertified, 2)))))
+
+						: h(Card, { title: t('ov.cert.title'), note: t('ov.cert.none', { list: subScopeIds(data).join(' + ') }) },
+							h('div', { className: 'epc-note' }, t('ov.cert.none.hint'))),
 
 					h(Card, { title: t('ov.contract.title') },
 						h('div', { style: { display: 'flex', flexDirection: 'column' } },
@@ -2456,18 +2477,18 @@ function contractList(data) {
 							tab === 'ipcs' ? t('sub.rows', { n: ipcs.length })
 								: tab === 'employer' ? t('sub.rows', { n: (payments.employer || []).length })
 									: tab === 'retention' ? t('sub.rows', { n: retentionRows(data, pkg).length })
-										: t('sub.rows', { n: (data.certificate.items || []).length }))),
+										: t('sub.rows', { n: ((data.certificate || {}).items || []).length }))),
 
 					tab === 'ipcs' ? ipcTable(ipcs) : null,
 					tab === 'employer' ? employerTable(payments.employer || []) : null,
 					tab === 'retention' ? retentionTable(retentionRows(data, pkg)) : null,
-					tab === 'boq' ? boqTable(data.certificate) : null,
+					tab === 'boq' ? (data.certificate ? boqTable(data.certificate) : h('div', { className: 'epc-note' }, t('co.boq.none'))) : null,
 
 					h('div', { className: 'epc-note' },
 						tab === 'ipcs' ? t('co.note.ipcs')
 							: tab === 'employer' ? t('co.note.employer')
 								: tab === 'retention' ? t('co.note.retention')
-									: t('co.note.boq', { no: data.certificate.no }))));
+									: t('co.note.boq', { no: (data.certificate || {}).no || t('co.boq.none.no') }))));
 		}
 
 		function ipcTable(rows) {
@@ -3895,6 +3916,27 @@ function contractList(data) {
 		   than to whatever the session happens to be using. The list comes from the
 		   host, because the browser cannot see the model catalogue. A picker that
 		   cannot load still works: it offers the session's own model and says so. */
+
+		/* A model badge is not always a string. The host returns the plain ones as
+		   text and the richer ones as {text, tone} — 'Pro Only' in green, 'Free now'
+		   in amber — and React throws 'Objects are not valid as a React child' on the
+		   object form. That exception unmounts the whole tree, which is a blank page
+		   rather than a broken badge, so the badge is reduced to its text here and its
+		   tone becomes a class. */
+		function badgeText(badge) {
+			if (badge === null || badge === undefined) return '';
+			if (typeof badge === 'string') return badge.trim();
+			if (typeof badge === 'number') return String(badge);
+			if (typeof badge === 'object' && typeof badge.text === 'string') return badge.text.trim();
+			return '';
+		}
+
+		function badgeTone(badge) {
+			if (!badge || typeof badge !== 'object') return '';
+			var tone = String(badge.tone || '').trim().toLowerCase();
+			return tone === 'success' || tone === 'warning' || tone === 'danger' || tone === 'neutral' ? tone : '';
+		}
+
 		function ModelPicker(props) {
 			var groups = props.providers || [];
 			var [chosen, setChosen] = useState(props.current || null);
@@ -3928,7 +3970,7 @@ function contractList(data) {
 										onClick: function () { setChosen({ provider: g.id, model: m.id }); }
 									},
 										h('span', { className: 'epc-models-n' }, m.name || m.id),
-										m.badge ? h('span', { className: 'epc-models-b' }, m.badge) : null,
+										badgeText(m.badge) ? h('span', { className: 'epc-models-b' + (badgeTone(m.badge) ? ' t-' + badgeTone(m.badge) : '') }, badgeText(m.badge)) : null,
 										m.description ? h('span', { className: 'epc-models-d' }, m.description) : null);
 								}));
 						}),
