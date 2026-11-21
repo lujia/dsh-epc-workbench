@@ -219,17 +219,17 @@ function readSource() {
   return {
     active: {
       source: 'folder',
-      folder: 'D:/projects/coal-yard',
+      folder: 'D:/projects/reactor-bay',
       builtAt: '2026-11-15T06:31:00.000Z',
       notes: gaps,
       demo: gapsMode ? ['letters', 'defects', 'payments', 'retention', 'certificate', 'mainContract', 'docs', 'contracts', 'project'] : [],
       blank: blankMode ? ['letters', 'defects', 'payments', 'retention', 'certificate', 'mainContract'] : [],
-      found: ['payment register: IPCs/CYE. Interim Payment Records - 260929.xlsx (sheets ipc=Interim Payment to ADVE, employer=Interim Payment from CEB, monthly=Monthly Interim Payment Records)',
+      found: ['payment register: payments/NGA payment records.xlsx (sheets ipc=Interim Payment to STRAT, employer=Interim Payment from NGA, monthly=Monthly Interim Payment Records)',
               'currencies named by the certificate header: USD, LKR, JPY',
-              'main contract number: CEB/DGM/GP/2019/01'],
+              'main contract number: NGA/EPC/2021/07'],
       model: modelMode ? 'workbuddy-global/deepseek-v4.1-flash' : null,
     },
-    build: { status: 'ready', folder: 'D:/projects/coal-yard', error: null, progress: '' },
+    build: { status: 'ready', folder: 'D:/projects/reactor-bay', error: null, progress: '' },
   }
 }
 

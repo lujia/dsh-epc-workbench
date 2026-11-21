@@ -167,8 +167,8 @@
 			];
 
 			/* A project whose name already names the site prints it twice — the main
-			   contract here reads 'Enhancing the Handling Capacity of Coal Yard,
-			   Lakvijaya Power Station' and the site is 'Lakvijaya Power Station'.
+			   contract here reads 'Reactor Bay Capacity Upgrade,
+			   Port of Almar' and the site is 'Port of Almar'.
 			   Drop the site when the name already carries it. */
 			var headName = String(project.name || '');
 			var headSite = String(project.site || '');

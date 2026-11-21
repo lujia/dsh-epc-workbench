@@ -349,8 +349,8 @@ PRICE_NO_RE = re.compile(r"Contract\s*NO\.?\s*:?\s*([A-Z0-9][A-Z0-9/._-]{4,})", 
 # 'US$15,149,404.61+  2,060,542,142.63' — the label is optional and belongs to the
 # figure that follows it, so both slices are read in one pass in their own order.
 AMOUNT_RE = re.compile(r"(US\$|LKR|SLR|USD|EUR|JPY|CNY|GBP|RMB)?\s*([\d][\d,]*\.\d{2})")
-# A registered company name, as it appears on a letterhead: 'Electricity Generation
-# Lanka (Pvt) Ltd'. The company suffix is what anchors it; the text before it is
+# A registered company name, as it appears on a letterhead: 'Meridian Grid
+# Authority (Pvt) Ltd'. The company suffix is what anchors it; the text before it is
 # whatever the letterhead happens to print.
 ORG_RE = re.compile(r"([A-Z][A-Za-z&.,()'\- ]{5,70}?(?:\(Pvt\)\s*Ltd|Ltd|Limited"
                     r"|Corporation|Authority|Board|Company|Agency|Ministry))")
@@ -409,8 +409,8 @@ def _certificate_files(folder):
     """The workbooks in a folder that read like interim payment certificates.
 
     A package folder holds one workbook per certificate plus a retention sheet, and
-    their names carry the certificate number — 'CMEC-ADVE-C008-IPC-52.xlsx',
-    'CYE-CMEC-CEB-IPA-55.xlsx', 'P01_IPC_Retention and Advance Payment.xlsx'. Asking
+    their names carry the certificate number — 'ACME-STR-C008-IPC-52.xlsx',
+    'ACME-OWNER-IPA-55.xlsx', 'P01_IPC_Retention and Advance Payment.xlsx'. Asking
     for that name is how a payments folder is told apart from any other folder that
     happens to contain a workbook.
     """
@@ -446,7 +446,7 @@ def _letter_head(path, limit=14):
 def _ref_tokens(name):
     """Upper-case reference tokens at the head of a document name.
 
-    'CMEC-ADVE-CYE-P01-C-001__01.md' yields CMEC, ADVE, CYE, P01, C. Only the
+    'ACME-STR-XYZ-P01-C-001__01.md' yields ACME, STR, XYZ, P01, C. Only the
     first few are names of organisations — the rest is a document code — so the
     caller decides which tokens are parties by matching them across series.
     """
@@ -471,7 +471,7 @@ def _plausible_org(name):
 
     The pattern that finds a registered name ends at the company suffix, so any
     sentence that happens to finish with 'Board' or 'Company' also matches:
-    'Change of Name from Ceylon Electricity Board' and 'Request for Approval of
+    'Change of Name from Northern Grid Board' and 'Request for Approval of
     the Third-Party Gantry Crane Testing Company' both do. A real name does not
     carry the small joining words that sentences need.
     """
@@ -586,13 +586,13 @@ def _norm_name(name):
 def _same_org(a, b):
     """Whether two printed names denote the same organisation.
 
-    Comparing the whole string would treat 'Electricity Generation Lanka (Pvt) Ltd'
-    and 'Ceylon Electricity Board' as unrelated, and treating every pair as
+    Comparing the whole string would treat 'Meridian Grid Authority (Pvt) Ltd'
+    and 'Northern Grid Board' as unrelated, and treating every pair as
     unrelated would print the same company twice under two roles. Two shared
-    distinctive words is the line: it keeps 'China Machinery Engineering
-    Corporation (CMEC)' together with 'China Machinery Engineering Corporation'
+    distinctive words is the line: it keeps 'Acme Industrial Engineering
+    Works (ACME)' together with 'Acme Industrial Works'
     and keeps the two letterhead names of one renamed party apart.
-    A short upper-case code such as 'CMEC' is matched against the initials of the
+    A short upper-case code such as 'ACME' is matched against the initials of the
     printed name, company suffix included, because that is what the code abbreviates.
     """
     if not a or not b:
@@ -609,8 +609,8 @@ def _same_org(a, b):
         initials = "".join(w[0] for w in words).upper()
         if initials.startswith(code):
             return True
-        # Some codes abbreviate the first word rather than the initials — 'ADVE'
-        # for 'Advantis', 'HAYL' for 'Hayleys' — so a shared opening is enough.
+        # Some codes abbreviate the first word rather than the initials — 'STRAT'
+        # for 'Stratford', 'HAYL' for 'Halcyon' — so a shared opening is enough.
         if words and len(words[0]) >= 4:
             opening = words[0][:4].upper()
             if code[:4] == opening or opening.startswith(code[:3]):
@@ -1035,8 +1035,8 @@ def _direction(head):
 def _cert_ordinal(name):
     """Certificate number from a package workbook name, or 0 when it has none.
 
-    The workbooks are named both ways — `CMEC-ADVE-C008-IPC-52.xlsx` and
-    `ADVE-IPC 9 -009.xlsx` — and the trailing number is sometimes the certificate
+    The workbooks are named both ways — `ACME-STR-C008-IPC-52.xlsx` and
+    `STR-IPC 9 -009.xlsx` — and the trailing number is sometimes the certificate
     and sometimes a package code, so only the `IPC<n>` form is trusted.
     """
     m = re.search(r"IPC[\s\-_]*0*(\d{1,3})(?![\d])", name, re.I)
@@ -1285,7 +1285,7 @@ def discover(folder):
     # A parallel-column file holds each payment certificate; find the folders that
     # hold them, at whatever depth the project grouped them. Here the main-contract
     # certificates sit one level down (payments/Main_Contract_IPC) and the two
-    # subcontracts two levels down (payments/ADVE_IPCs/IPC~P1), because the project
+    # subcontracts two levels down (payments/STR_IPCs/IPC~P1), because the project
     # groups them by subcontractor first. A search that assumes one fixed depth finds
     # the main contract and calls the subcontracts missing.
     scored_dirs = []
@@ -1615,10 +1615,10 @@ def discover(folder):
         name from the latest correspondence first and the name printed on the
         certificates after it. That matters where a certificate series was never
         reissued under the new name: the M-S header of the newest certificate still
-        says 'Ceylon Electricity Board' months after the employer became
-        Electricity Generation Lanka, so the workbook must not win by being official.
+        says 'Northern Grid Board' months after the employer became
+        Meridian Grid Authority, so the workbook must not win by being official.
 
-        A reference code such as 'ADVE' is only a fallback: it is what the documents
+        A reference code such as 'STRAT' is only a fallback: it is what the documents
         use in their titles, but a reader needs the registered name, so a printed
         name always wins when one exists and a code never takes the place of a
         former name that is actually printed.
@@ -1628,7 +1628,7 @@ def discover(folder):
                                   r"|company|agency|ministry|plc", name or ""))
 
         # Registered names and reference codes are collected apart: a code such as
-        # 'ADVE' abbreviates a name that may also be in this list ('Advantis …'), and
+        # 'STRAT' abbreviates a name that may also be in this list ('Stratford …'), and
         # testing the two against each other would throw the printed name away as a
         # duplicate of its own abbreviation.
         names, codes = [], []
@@ -1811,19 +1811,19 @@ def discover(folder):
     if project_name:
         project_name = re.sub(r"\s*Contract\s*NO\.?.*$", "", project_name, flags=re.I).strip()
     project_name = project_name or name
-    # The folder name is a directory, not a title: 'CYE_Project' says nothing about
+    # The folder name is a directory, not a title: 'Project_Files' says nothing about
     # the works. The caption under the panel is taken from the stated project name
     # and only falls back to the folder when no document names the project.
     short = re.sub(r"^(?:Upgrading|Enhancing|Construction|Rehabilitation|Extension)\s+(?:of\s+)?",
                    "", project_name, flags=re.I).strip()
-    # 'Capacity of Coal Yard …' names the capability being added rather than the
+    # 'Reactor Bay Capacity …' names the capability being added rather than the
     # works, so the leading 'Capacity of' is dropped when enough words remain.
     lead = re.match(r"^[A-Z]?[a-z]+\s+of\s+(.+)$", short)
     if lead and len(lead.group(1).split()) >= 3:
         short = lead.group(1)
     if len(short) > 34:
         short = " ".join(short.split()[:5])
-    # '… Lakvijaya Power Station …' — the site is the installation the works are on,
+    # '… Port of Almar …' — the site is the installation the works are on,
     # which the project title carries and the certificates repeat.
     site_m = re.search(r"([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,2}\s+"
                        r"(?:Power Station|Site|Plant|Terminal|Refinery|Mine|Substation))",

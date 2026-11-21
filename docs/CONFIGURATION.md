@@ -219,7 +219,7 @@ It exists because the model catalogue lives in the host half: `ctx.get('llm')` i
 visible to the page. `POST /plugins/epc-workbench/analyze` accepts an optional route:
 
 ```json
-{ "folder": "D:/projects/coal-yard", "mode": "model",
+{ "folder": "D:/projects/reactor-bay", "mode": "model",
   "route": { "provider": "workbuddy", "model": "deepseek-v4.1-flash" } }
 ```
 
@@ -365,7 +365,7 @@ the main-contract folder, and every other one becomes a package.
 
 Depth is not fixed either: this project keeps its main certificates one level down
 (`payments/Main_Contract_IPC`) and its two subcontracts two levels down
-(`payments/ADVE_IPCs/IPC~P1`), and both are found.
+(`payments/STR_IPCs/IPC~P1`), and both are found.
 
 ### Letter series are de-duplicated
 

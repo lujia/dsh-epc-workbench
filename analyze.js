@@ -98,7 +98,7 @@ Decide what this corpus is and return the configuration that reads it. Work out:
 7. The parties: who is the employer, who is the contractor (the standpoint), who
    is the subcontractor, and any former names the records show. Use the full name
    the document gives, not the reference code: an evidence block that reads
-   "between China Machinery Engineering Corporation (hereinafter "the Contractor")"
+   "between Acme Industrial Works (hereinafter "the Contractor")"
    is telling you who the contractor is.
 8. The contract numbers, and the price in each currency, from the evidence blocks.
    When an addendum states a variation, work out the revised price and record it as
@@ -192,8 +192,8 @@ async function askModel(llm, route, inventory, signal, subfolder = '', index = 0
  * Re-anchor the paths in one answer onto the project root.
  *
  * Each call covers one subfolder, so a model shown the inventory of `contracts`
- * answers with `CEB_MAIN` — the name it was given — while the extractor resolves
- * every path against the project root, where that folder is `contracts/CEB_MAIN`.
+ * answers with `NGA_MAIN` — the name it was given — while the extractor resolves
+ * every path against the project root, where that folder is `contracts/NGA_MAIN`.
  * Without this the main-contract certificates are searched for in a folder that does
  * not exist, and a contracts-only project reports no contract price at all.
  *
@@ -264,7 +264,7 @@ function initials(name) {
  */
 /* The currencies whose symbol is worth printing. The interface puts the currency
  * beside a figure in a fixed-width column; a written-out name is either cut short
- * ("Sri Lankan R") or pushes the amount out of its tile ("US Dollar"). A symbol
+ * ("Almar Rupee") or pushes the amount out of its tile ("US Dollar"). A symbol
  * is one or two characters and reads the same in both languages. */
 const CURRENCY_SYMBOLS = {
 	USD: 'US$',
@@ -318,7 +318,7 @@ function tidy(raw, folder) {
 						code: String(c.code).toUpperCase().slice(0, 8),
 						// A currency label is printed beside a figure inside a KPI
 						// tile, so it has to be a symbol or a very short token. A
-						// model that answers with the written-out name ("Sri Lankan
+						// model that answers with the written-out name ("Almar
 						// Rupees", "United States Dollars") has read the document
 						// correctly and produced a label that cannot be printed: the
 						// figure column is fixed, and "US Dollar" pushes the amount

@@ -46,12 +46,12 @@ MONEY_RE = re.compile(
     r"(?<![A-Za-z])" + CURRENCY + r"\s*[:=]?\s*\(?\s*([0-9][0-9,]*(?:\.[0-9]{1,3})?(?:\s*(?:Mn|M|million|billion))?)",
     re.I,
 )
-# The written-out form a contract uses beside the figure: "Sri Lankan Rupees One
+# The written-out form a contract uses beside the figure: "Almar Rupees One
 # Billion ... (LKR 1,881,773,646.24)". Its value is where the words and the digits
 # disagree — it tells us the currency of a figure whose symbol was lost.
 WORDED_RE = re.compile(r"\b(United States Dollars|Sri Lankan Rupees|Rupees)\b", re.I)
 
-# "Ceylon Electricity Board (hereinafter “the Employer”)" — the quote and the
+# "Northern Grid Board (hereinafter “the Employer”)" — the quote and the
 # article can come in either order, which is why the first version of this
 # pattern found no parties at all in the main contract.
 PARTY_RE = re.compile(

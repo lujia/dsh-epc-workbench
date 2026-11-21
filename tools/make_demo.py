@@ -702,16 +702,16 @@ def build_docs():
 # the feature looks broken until a real folder is read.
 DEMO_FOLDERS = (
     ("contracts", ("contracts",), [
-        ("ADVE_P01", "NGA-MEL-C008 subcontract - signed.pdf", 1840000, "pdf"),
-        ("ADVE_P01", "C008-Addendum-01.md", 9480, "md"),
-        ("ADVE_P02", "NGA-MEL-C009 subcontract - signed.pdf", 1760000, "pdf"),
-        ("CEB_MAIN", "NGA-MEL main contract - signed.pdf", 3120000, "pdf"),
-        ("CEB_MAIN", "MoU - price escalation.docx", 27706, "docx"),
+        ("MEL_P01", "NGA-MEL-C008 subcontract - signed.pdf", 1840000, "pdf"),
+        ("MEL_P01", "C008-Addendum-01.md", 9480, "md"),
+        ("MEL_P02", "NGA-MEL-C009 subcontract - signed.pdf", 1760000, "pdf"),
+        ("NGA_MAIN", "NGA-MEL main contract - signed.pdf", 3120000, "pdf"),
+        ("NGA_MAIN", "MoU - price escalation.docx", 27706, "docx"),
     ]),
     ("defects", ("defects",), [
         ("", "DL.xlsx", 149655, "xlsx"),
-        ("Original Civil Defect Lists", "Defect list 2024-06.pdf", 2860000, "pdf"),
-        ("Original Civil Defect Lists", "Defect list 2025-03.pdf", 2410000, "pdf"),
+        ("Defect lists 2024", "Defect list 2024-06.pdf", 2860000, "pdf"),
+        ("Defect lists 2025", "Defect list 2025-03.pdf", 2410000, "pdf"),
     ]),
     ("drawings", ("drawings",), [
         ("1 Layout", "NRS-1001 General arrangement.pdf", 860000, "pdf"),
@@ -722,9 +722,9 @@ DEMO_FOLDERS = (
         ("6 Electrical", "NRS-6002 Cable schedule.xlsx", 128000, "xlsx"),
     ]),
     ("letters", ("letters",), [
-        ("md_Letters_issued_to_ADVE", "NGA-MEL-NRS-C-014 Notice of delay.md", 12400, "md"),
-        ("md_Letters_issued_to_ADVE", "NGA-MEL-NRS-C-015 Method statement.md", 9800, "md"),
-        ("md_Letters_received_from_ADVE", "MEL-NGA-NRS-R-009 Claim notice.md", 11200, "md"),
+        ("md_Letters_issued_to_MEL", "NGA-MEL-NRS-C-014 Notice of delay.md", 12400, "md"),
+        ("md_Letters_issued_to_MEL", "NGA-MEL-NRS-C-015 Method statement.md", 9800, "md"),
+        ("md_Letters_received_from_MEL", "MEL-NGA-NRS-R-009 Claim notice.md", 11200, "md"),
     ]),
     ("materials", ("materials",), [
         ("NRS01", "NRS01 material list.xlsx", 88000, "xlsx"),
@@ -738,8 +738,8 @@ DEMO_FOLDERS = (
     ]),
     ("payments", ("payments",), [
         ("", "NRS. Interim Payment Records.xlsx", 264000, "xlsx"),
-        ("ADVE_IPCs", "IPC~P1", "MEL-CWL-008-IPC-24.xlsx", 148000, "xlsx"),
-        ("Main_Contract_IPC", "NGA-MEL-IPA-14.xlsx", 156000, "xlsx"),
+        ("MEL_IPCs", "IPC~P1", "MEL-CWL-008-IPC-24.xlsx", 148000, "xlsx"),
+        ("NGA_IPCs", "NGA-MEL-IPA-14.xlsx", 156000, "xlsx"),
     ]),
     ("photos", ("photos",), [
         ("2026-03 site progress", "DSC_0142.jpg", 3820000, "jpg"),

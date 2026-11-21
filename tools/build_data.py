@@ -121,7 +121,7 @@ HEADER_VALUE_STOP = re.compile(r"(?i)\s+(?:date|subject|ref(?:erence)?\s*no\.?|o
 # --------------------------------------------------------------------------- resolution
 # A workbench pointed at a folder it was not written for meets the same records
 # under different names: 'DL 2026.xlsx' instead of 'DL.xlsx', a register whose
-# sheet is called 'IPCs' instead of 'Interim Payment to ADVE'. Nothing here
+# sheet is called 'IPCs' instead of 'Interim Payment to STRAT'. Nothing here
 # requires the exact file: the configured name is tried first, then names that
 # match what the file is, and a folder that simply does not hold the record leaves
 # that section empty with a warning rather than failing the whole build.

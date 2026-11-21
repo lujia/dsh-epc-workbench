@@ -49,7 +49,7 @@ A project folder is usually organised by what the records are, not by what the
 application needs:
 
 ```
-CYE_Project/
+Project_Files/
   contracts/   defects/   drawings/   letters/   materials/
   meetings/    payments/  photos/     taking_overs/  videos/
 ```
@@ -57,8 +57,8 @@ CYE_Project/
 That layout works as it stands — nothing has to be renamed. In particular:
 
 - **payments** is found by its contents (subfolders of certificate workbooks), at
-  whatever depth the project nests them, so `payments/ADVE_IPCs/IPC~P1` and
-  `payments/Main_Contract_IPC` are both recognised as certificate folders;
+  whatever depth the project nests them, so `payments/STR_IPCs/IPC~P1` and
+  `payments/NGA_IPCs` are both recognised as certificate folders;
 - **drawings** becomes a register of sets: how many drawings each discipline or
   transmittal holds, counting the `CAD`/`PDF` folders and the date folders inside;
 - **defects**, **materials**, **taking_overs** (`taking-overs` too — the hyphen is
@@ -206,11 +206,11 @@ here requires an exact file:
   certificate. A configured path is used when it exists, and a name match replaces it when
   it does not.
 * **Sheets are matched by pattern.** `IPC-008 (52)` or `IPC-009`, `GRAND SUM` or
-  ` SUM ACC` or `SUM Coal Yard` — trailing spaces and case are ignored, and the item sheet
+  ` SUM ACC` or `SUM Reactor Bay` — trailing spaces and case are ignored, and the item sheet
   is the one whose first rows mention a BOQ amount and a cumulative figure.
 * **Folders may sit at any depth.** Letter and minute folders are found by walking the tree
   and reading the first file, so `records/letters/issued` works as well as
-  `md_Letters_issued_to_ADVE`, and a folder named `incoming` works as well as
+  `md_Letters_issued_to_STRAT`, and a folder named `incoming` works as well as
   `…_received_from_…`.
 * **Documents are read, not just filenames.** `.md`, `.txt`, `.docx` and `.pdf` are all
   readable: Word through `python-docx`, PDF by decompressing the text operators in the file
@@ -289,8 +289,8 @@ about one at a time, telling it which:
 > Report only what these files establish, and omit every field they do not.
 
 Each answer is re-anchored onto the project root before it is used (`reanchor()` in
-`analyze.js`): a model shown `contracts` names `CEB_MAIN`, and the extractor resolves paths
-against the root, where that folder is `contracts/CEB_MAIN`. The check is the filesystem's,
+`analyze.js`): a model shown `contracts` names `NGA_MAIN`, and the extractor resolves paths
+against the root, where that folder is `contracts/NGA_MAIN`. The check is the filesystem's,
 not a guess — a path is moved only when it exists under the subfolder and not at the root.
 
 The answers are then merged (`mergeConfigs()`): a scalar comes from the first answer that
