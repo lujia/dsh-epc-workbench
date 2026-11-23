@@ -440,23 +440,52 @@ anywhere else.
 
 ## Publishing a release
 
-The package name is `dsh-epc-workbench` and it is unscoped, so `publishConfig.access`
-is `public`. Publishing needs an npm account with publish rights on that name:
+A GitHub release is cut by one command:
 
 ```bash
-pnpm login                 # or: npm login
-pnpm pack --pack-destination .     # inspect what would be uploaded
-pnpm publish --no-git-checks       # --tag next for a pre-release
+node tools/release.mjs --dry-run   # run every check, change nothing
+node tools/release.mjs             # tag, push and publish
 ```
 
-`pnpm pack` is the check that matters: it prints the exact file list, and the list must
-never contain `workbench.config.json`, `src/`, `preview/` or `.git`. Bump `version`
-before each publish — npm refuses to overwrite a version that already exists.
+The version comes from `package.json` and the tag is derived from it, so the two cannot
+disagree. Every check exists because it has caught a real mistake here at least once:
 
-Anyone can then install it into their own Harness profile:
+| Check | The mistake it catches |
+| --- | --- |
+| The tree is clean, on `main`, tag unused | A tag pointing at a commit that was never tested |
+| Rebuilding leaves `client.js` unchanged | `src/` was edited and the generated bundle was never rebuilt, so the release ships the previous page |
+| `node --check`, `tools/smoke.mjs`, `tools/check_i18n.mjs`, `py_compile` | A view that no longer renders, a missing translation, a broken extractor |
+| `pnpm pack` file list, inspected inside the tarball | `workbench.config.json`, `src/` or `preview/` reaching a public download |
+
+`--dry-run` runs all four and stops before tagging, so it is safe to run at any time.
+The script then tags `v<version>`, pushes `main` and the tag, packs
+`dist/dsh-epc-workbench-<version>.tgz`, and attaches it to a release — replacing the
+asset if that release already exists.
+
+Release automation used to live in a GitHub Actions workflow. It was removed because
+pushing a workflow file needs a `workflow`-scoped token, and a local script does the same
+work with the token you already have. The four checks are identical either way.
+
+Publishing to **npm** is a separate step and still needs an npm account with rights on
+the name:
+
+```bash
+pnpm login                   # or: npm login
+pnpm publish --no-git-checks # --tag next for a pre-release
+```
+
+`publishConfig.access` is `public` because `dsh-epc-workbench` is unscoped. npm refuses
+to overwrite a version that already exists, so bump `version` — the script's tag follows
+it automatically.
+
+Anyone can then install it into their own Harness profile, from the registry or from a
+checkout:
 
 ```bash
 dsh plugin add dsh-epc-workbench
+# or
+git clone https://github.com/lujia/dsh-epc-workbench.git
+dsh plugin add ./dsh-epc-workbench
 ```
 
 ## Licence

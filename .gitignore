@@ -11,3 +11,8 @@ node_modules/
 *.log
 .DS_Store
 Thumbs.db
+
+# Packed tarballs. tools/release.mjs writes them to dist/ and attaches the
+# result to a GitHub release; a stray one in the repository root is just noise.
+dist/
+*.tgz
